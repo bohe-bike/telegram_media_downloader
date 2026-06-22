@@ -82,7 +82,7 @@ class DownloadBot:
 
     def remove_task_node(self, task_id: int):
         """Remove task node"""
-        self.task_node.pop(task_id)
+        self.task_node.pop(task_id, None)
 
     def stop_task(self, task_id: str):
         """Stop task"""
@@ -130,7 +130,7 @@ class DownloadBot:
         """Update config from str."""
         self.config["download_filter"] = self.download_filter
 
-        with open("d", "w", encoding="utf-8") as yaml_file:
+        with open(self.config_path, "w", encoding="utf-8") as yaml_file:
             self._yaml.dump(self.config, yaml_file)
 
     async def start(
@@ -298,8 +298,8 @@ class DownloadBot:
 
         try:
             await send_help_str(self.bot, admin.id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to send help: {e}")
 
         self.reply_task = _bot.app.loop.create_task(_bot.update_reply_message())
 
@@ -433,7 +433,7 @@ async def set_language(client: pyrogram.Client, message: pyrogram.types.Message)
         None
     """
 
-    if len(message.text.split()) != 2:
+    if not message.text or len(message.text.split()) != 2:
         await client.send_message(
             message.from_user.id,
             _t("Invalid command format. Please use /set_language en/ru/zh/ua"),
@@ -790,8 +790,9 @@ async def remove_replace_advertisement_filter(
                 message.from_user.id, f"{_t('Remove filter')} : {filter_str}"
             )
         else:
-            _bot.app.replace_advertisement_list.append(filter_str)
-            await client.send_message()
+            await client.send_message(
+                message.from_user.id, f"{_t('Filter not found')} : {filter_str}"
+            )
         _bot.app.update_config(True)
     except Exception as e:
         await client.send_message(
@@ -900,7 +901,7 @@ async def download_from_link(client: pyrogram.Client, message: pyrogram.types.Me
             if download_message:
                 await direct_download(_bot, entity.id, message, download_message)
             else:
-                client.send_message(
+                await client.send_message(
                     message.from_user.id,
                     f"{_t('From')} {entity.title} {_t('download')} {message_id} {_t('error')}!",
                     reply_to_message_id=message.id,
@@ -966,6 +967,7 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
             return
     try:
         chat_id, _, _ = await parse_link(_bot.client, url)
+        entity = None
         if chat_id:
             entity = await _bot.client.get_chat(chat_id)
         if entity:
@@ -999,7 +1001,7 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
         await client.send_message(
             message.from_user.id,
             f"{_t('chat input error, please enter the channel or group link')}\n\n"
-            f"{_t('Error type')}: {e.__class__}"
+            f"{_t('Error type')}: {e.__class__}\n"
             f"{_t('Exception message')}: {e}",
         )
         return
@@ -1071,6 +1073,7 @@ async def get_forward_task_node(
             await client.send_message(
                 message.from_user.id, err, reply_to_message_id=message.id
             )
+            return None
 
     last_reply_message = await client.send_message(
         message.from_user.id,

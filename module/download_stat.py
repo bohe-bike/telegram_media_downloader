@@ -106,17 +106,16 @@ async def update_download_status(
             "file_name": file_name,
             "start_time": start_time,
             "end_time": cur_time,
-            "download_speed": down_byte / (cur_time - start_time),
+            "download_speed": down_byte / (cur_time - start_time) if cur_time > start_time else 0,
             "each_second_total_download": each_second_total_download,
             "task_id": node.task_id,
         }
         _total_download_size += down_byte
 
-    if cur_time - _last_download_time >= 1.0:
+    elapsed = cur_time - _last_download_time
+    if elapsed >= 1.0:
         # update speed
-        _total_download_speed = int(
-            _total_download_size / (cur_time - _last_download_time)
-        )
+        _total_download_speed = int(_total_download_size / elapsed) if elapsed > 0 else 0
         _total_download_speed = max(_total_download_speed, 0)
         _total_download_size = 0
         _last_download_time = cur_time

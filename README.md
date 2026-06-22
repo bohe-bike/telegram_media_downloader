@@ -267,6 +267,18 @@ proxy:
 
 If your proxy doesn’t require authorization you can omit username and password. Then the proxy will automatically be enabled.
 
+## Environment Variables
+
+The following environment variables are optional and can be used to customize the behavior of the application:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `TDL_SECRET_KEY` | Flask secret key for signing session cookies. If not set, a random key is generated on each restart (all web sessions will be invalidated). | Random hex string |
+| `TDL_AES_KEY` | AES encryption key for web login. Must match the key in `login.html` frontend. | `1234123412ABCDEF` |
+| `TDL_AES_IV` | AES encryption IV for web login. Must match the IV in `login.html` frontend. | `ABCDEF1234123412` |
+
+**Note:** If you change `TDL_AES_KEY` or `TDL_AES_IV`, you must also update the corresponding values in the frontend `login.html` file, otherwise the web login will not work.
+
 ## Contributing
 
 ### Contributing Guidelines

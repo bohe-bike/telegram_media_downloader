@@ -896,13 +896,16 @@ class Application:
         self.config["replace_advertisement_list"] = self.replace_advertisement_list
         self.config["group_add_advertisement"] = self.group_add_advertisement
 
-        if immediate:
-            with open(self.config_file, "w", encoding="utf-8") as yaml_file:
-                _yaml.dump(self.config, yaml_file)
+        try:
+            if immediate:
+                with open(self.config_file, "w", encoding="utf-8") as yaml_file:
+                    _yaml.dump(self.config, yaml_file)
 
-        if immediate:
-            with open(self.app_data_file, "w", encoding="utf-8") as yaml_file:
-                _yaml.dump(self.app_data, yaml_file)
+            if immediate:
+                with open(self.app_data_file, "w", encoding="utf-8") as yaml_file:
+                    _yaml.dump(self.app_data, yaml_file)
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
 
     def set_language(self, language: Language):
         """Set Language"""
@@ -943,6 +946,8 @@ class Application:
         ----------
         caption: str
         """
+        if not caption:
+            return False
         for ad in self.filter_advertisement_list:
             if ad in caption:
                 return True

@@ -1,6 +1,6 @@
 """Multi language support"""
 
-# disable pylint: disable = C0301
+# pylint: disable=C0301
 from enum import Enum
 
 

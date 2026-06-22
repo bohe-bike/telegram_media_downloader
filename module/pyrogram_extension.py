@@ -501,14 +501,12 @@ async def _upload_signal_message(
         if node.reply_to_message:
             await node.reply_to_message.reply_video_note(
                 file_name,
-                caption=caption,
                 message_thread_id=node.topic_id,
             )
         else:
             await upload_user.send_video_note(
                 upload_telegram_chat_id,
                 file_name,
-                caption=caption,
                 progress=update_upload_stat,
                 progress_args=(
                     message.id,
@@ -694,9 +692,10 @@ def convert_entities(
 async def convect_caption_entities(client, text):
     # Convert back to entities format
     try:
-        return (await client.parser.parse(text, None)).values()
+        result = await client.parser.parse(text, None)
+        return result.get("caption", text), result.get("entities", None)
     except Exception as e:
-        print(f"Error parsing markdown: {e}")
+        logger.warning(f"Error parsing markdown: {e}")
         # If parsing fails, return cleaned text without entities
         return text, None
 
@@ -977,7 +976,7 @@ async def proc_cache_forward(
 
     node.stat_forward(forward_status, len(multi_media))
 
-    return ForwardStatus.CacheForward
+    return forward_status
 
 
 def record_download_status(func):
@@ -1119,6 +1118,8 @@ async def _report_bot_status(
                 task_id = value["task_id"]
                 if task_id != node.task_id or value["down_byte"] == value["total_size"]:
                     continue
+                if value["total_size"] == 0:
+                    continue
 
                 temp_file_name = truncate_filename(
                     os.path.basename(value["file_name"]), 10
@@ -1140,7 +1141,7 @@ async def _report_bot_status(
 
         upload_result_str = ""
         for idx, value in node.upload_stat_dict.items():
-            if value.total_size == value.upload_size:
+            if value.total_size == value.upload_size or value.total_size == 0:
                 continue
 
             temp_file_name = truncate_filename(os.path.basename(value.file_name), 10)
@@ -1301,7 +1302,7 @@ def set_meta_data(
         meta_data.message_caption = getattr(message, "caption", None) or ""
     meta_data.message_id = getattr(message, "id", None)
 
-    from_user = getattr(message, "from_user")
+    from_user = getattr(message, "from_user", None)
     meta_data.sender_id = from_user.id if from_user else 0
     meta_data.sender_name = (from_user.username if from_user else "") or ""
     meta_data.reply_to_message_id = getattr(

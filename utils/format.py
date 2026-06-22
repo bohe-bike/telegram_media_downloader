@@ -54,8 +54,8 @@ def format_byte(size: float, dot=2):
         human_size = str(round(size / math.pow(1024, 12), dot)) + "CB"
     else:
         raise ValueError(
-            f'format_byte() takes number than or equal to 0, " \
-            " but less than 0 given. {size}'
+            f"format_byte() takes a number greater than or equal to 0, "
+            f"but less than 0 given: {size}"
         )
     return human_size
 
@@ -154,10 +154,10 @@ def replace_date_time(text: str, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     if not res.match:
         return text
     if res.left_str:
-        res_str += replace_date_time(res.left_str)
+        res_str += replace_date_time(res.left_str, fmt)
     res_str += res.value
     if res.right_str:
-        res_str += replace_date_time(res.right_str)
+        res_str += replace_date_time(res.right_str, fmt)
 
     return res_str
 
@@ -211,7 +211,7 @@ def truncate_filename(path: str, limit: int = 230) -> str:
     """
     p, f = os.path.split(os.path.normpath(path))
     f, e = os.path.splitext(f)
-    f_max = limit - len(e.encode("utf-8"))
+    f_max = max(0, limit - len(e.encode("utf-8")))
     f = unicodedata.normalize("NFC", f)
     f_trunc = f.encode()[:f_max].decode("utf-8", errors="ignore")
     return os.path.join(p, f_trunc + e)

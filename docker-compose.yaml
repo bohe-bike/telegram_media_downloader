@@ -10,6 +10,11 @@ services:
     #environment:
     #  - http_proxy=http://192.168.101.30:10811
     #  - https_proxy=http://192.168.101.30:10811
+    # Flask secret key for session signing (random if not set, sessions reset on restart)
+    #  - TDL_SECRET_KEY=your_secret_key_here
+    # AES encryption key/IV for web login (must match login.html frontend)
+    #  - TDL_AES_KEY=1234123412ABCDEF
+    #  - TDL_AES_IV=ABCDEF1234123412
     volumes:
       # Here is what you need to edit
       - "./downloads/:/app/downloads/"

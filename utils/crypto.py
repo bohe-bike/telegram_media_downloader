@@ -26,7 +26,7 @@ class AesBase64(object):
         cipher = AES.new(self.key, AES.MODE_CBC, self.iv)
         content_padding = self.pkcs7padding(content)
         encrypt_bytes = cipher.encrypt(content_padding.encode("utf-8"))
-        return base64.b64encode(encrypt_bytes)
+        return base64.b64encode(encrypt_bytes).decode("utf-8")
 
     def decrypt(self, content):
         """
@@ -55,7 +55,15 @@ class AesBase64(object):
             str: The text without PKCS#7 padding.
         """
         length = len(text)
+        if length == 0:
+            return text
         unpadding = ord(text[length - 1])
+        if unpadding < 1 or unpadding > 16 or unpadding > length:
+            return text
+        # Verify all padding bytes are consistent
+        for i in range(unpadding):
+            if ord(text[length - 1 - i]) != unpadding:
+                return text
         return text[0 : length - unpadding]
 
     def pkcs7padding(self, text):

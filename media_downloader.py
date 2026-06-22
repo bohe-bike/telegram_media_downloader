@@ -45,6 +45,12 @@ DATA_FILE_NAME = "data.yaml"
 APPLICATION_NAME = "media_downloader"
 app = Application(CONFIG_NAME, DATA_FILE_NAME, APPLICATION_NAME)
 
+
+class DownloadSizeMismatch(Exception):
+    """Raised when downloaded file size doesn't match expected media size."""
+
+
+
 queue: asyncio.Queue = asyncio.Queue()
 RETRY_TIME_OUT = 3
 
@@ -77,7 +83,7 @@ def _check_download_finish(media_size: int, download_path: str, ui_file_name: st
             f"{media_size}, {_t('file name')}: {ui_file_name}"
         )
         os.remove(download_path)
-        raise pyrogram.errors.exceptions.bad_request_400.BadRequest()
+        raise DownloadSizeMismatch()
 
 
 def _move_to_download_path(temp_download_path: str, download_path: str):
@@ -137,7 +143,7 @@ def _can_download(_type: str, file_formats: dict, file_format: Optional[str]) ->
     """
     if _type in ["audio", "document", "video"]:
         allowed_formats: list = file_formats[_type]
-        if not file_format in allowed_formats and allowed_formats[0] != "all":
+        if file_format not in allowed_formats and allowed_formats and allowed_formats[0] != "all":
             return False
     return True
 
@@ -312,7 +318,10 @@ async def download_task(
 
     node.download_status[message.id] = download_status
 
-    file_size = os.path.getsize(file_name) if file_name else 0
+    try:
+        file_size = os.path.getsize(file_name) if file_name else 0
+    except FileNotFoundError:
+        file_size = 0
 
     await upload_telegram_chat(
         client,
@@ -413,7 +422,7 @@ async def download_media(
             if _can_download(_type, file_formats, file_format):
                 if _is_exist(file_name):
                     file_size = os.path.getsize(file_name)
-                    if file_size or file_size == media_size:
+                    if file_size == media_size:
                         logger.info(
                             f"id={message.id} {ui_file_name} "
                             f"{_t('already download,download skipped')}.\n"
@@ -457,6 +466,16 @@ async def download_media(
                 _move_to_download_path(temp_download_path, file_name)
                 # TODO: if not exist file size or media
                 return DownloadStatus.SuccessDownload, file_name
+        except DownloadSizeMismatch:
+            logger.warning(
+                f"Message[{message.id}]: downloaded file size mismatch, retrying..."
+            )
+            await asyncio.sleep(RETRY_TIME_OUT)
+            if _check_timeout(retry, message.id):
+                logger.error(
+                    f"Message[{message.id}]: size mismatch after 3 retries, download skipped."
+                )
+                break
         except pyrogram.errors.exceptions.bad_request_400.BadRequest:
             logger.warning(
                 f"Message[{message.id}]: {_t('file reference expired, refetching')}..."
@@ -469,10 +488,12 @@ async def download_media(
                     f"Message[{message.id}]: "
                     f"{_t('file reference expired for 3 retries, download skipped.')}"
                 )
+                break
         except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
             await asyncio.sleep(wait_err.value)
             logger.warning("Message[{}]: FlowWait {}", message.id, wait_err.value)
-            _check_timeout(retry, message.id)
+            if _check_timeout(retry, message.id):
+                break
         except TypeError:
             # pylint: disable = C0301
             logger.warning(
@@ -484,6 +505,7 @@ async def download_media(
                 logger.error(
                     f"Message[{message.id}]: {_t('Timing out after 3 reties, download skipped.')}"
                 )
+                break
         except Exception as e:
             # pylint: disable = C0301
             logger.error(
@@ -522,12 +544,15 @@ def _check_config() -> bool:
 async def worker(client: pyrogram.client.Client):
     """Work for download task"""
     while app.is_running:
+        message = None
+        node = None
         try:
             item = await queue.get()
             message = item[0]
             node: TaskNode = item[1]
 
             if node.is_stop_transmission:
+                node.finish_task += 1
                 continue
 
             if node.client:
@@ -536,6 +561,12 @@ async def worker(client: pyrogram.client.Client):
                 await download_task(client, message, node)
         except Exception as e:
             logger.exception(f"{e}")
+            if node and message:
+                try:
+                    node.download_status[message.id] = DownloadStatus.FailedDownload
+                    node.finish_task += 1
+                except Exception:
+                    pass
 
 
 async def download_chat_task(
@@ -562,6 +593,8 @@ async def download_chat_task(
         )
 
         for message in skipped_messages:
+            if message is None or message.empty:
+                continue
             await add_download_task(message, node)
 
     async for message in messages_iter:  # type: ignore
@@ -614,6 +647,8 @@ async def download_all_chat(client: pyrogram.Client):
 
 async def run_until_all_task_finish():
     """Normal download"""
+    max_wait = 3600  # 1 hour timeout
+    waited = 0
     while True:
         finish: bool = True
         for _, value in app.chat_download_config.items():
@@ -623,7 +658,12 @@ async def run_until_all_task_finish():
         if (not app.bot_token and finish) or app.restart_program:
             break
 
+        if waited >= max_wait:
+            logger.warning("Timeout waiting for tasks to finish, forcing exit.")
+            break
+
         await asyncio.sleep(1)
+        waited += 1
 
 
 def _exec_loop():
@@ -667,7 +707,7 @@ def main():
         app.loop.run_until_complete(start_server(client))
         logger.success(_t("Successfully started (Press Ctrl+C to stop)"))
 
-        app.loop.create_task(download_all_chat(client))
+        download_all_task = app.loop.create_task(download_all_chat(client))
         for _ in range(app.max_download_task):
             task = app.loop.create_task(worker(client))
             tasks.append(task)
@@ -688,6 +728,8 @@ def main():
         app.loop.run_until_complete(stop_server(client))
         for task in tasks:
             task.cancel()
+        if tasks:
+            app.loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
         logger.info(_t("Stopped!"))
         # check_for_updates(app.proxy)
         logger.info(f"{_t('update config')}......")

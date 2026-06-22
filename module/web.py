@@ -22,14 +22,20 @@ from utils.format import format_byte
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
 
+import os
+import secrets
+
 _flask_app = Flask(__name__)
 
-_flask_app.secret_key = "tdl"
+_flask_app.secret_key = os.environ.get("TDL_SECRET_KEY", secrets.token_hex(32))
 _login_manager = LoginManager()
 _login_manager.login_view = "login"
 _login_manager.init_app(_flask_app)
 web_login_users: dict = {}
-deAesCrypt = AesBase64("1234123412ABCDEF", "ABCDEF1234123412")
+deAesCrypt = AesBase64(
+    os.environ.get("TDL_AES_KEY", "1234123412ABCDEF"),
+    os.environ.get("TDL_AES_IV", "ABCDEF1234123412"),
+)
 
 
 class User(UserMixin):
@@ -45,14 +51,16 @@ class User(UserMixin):
 
 
 @_login_manager.user_loader
-def load_user(_):
+def load_user(user_id):
     """
     Load a user object from the user ID.
 
     Returns:
         User: The user object.
     """
-    return User()
+    if user_id in web_login_users:
+        return User()
+    return None
 
 
 def get_flask_app() -> Flask:
@@ -87,7 +95,7 @@ def init_web(app: Application):
     else:
         _flask_app.config["LOGIN_DISABLED"] = True
     if app.debug_web:
-        threading.Thread(target=run_web_server, args=(app,)).start()
+        threading.Thread(target=run_web_server, args=(app,), daemon=True).start()
     else:
         threading.Thread(
             target=get_flask_app().run, daemon=True, args=(app.web_host, app.web_port)
@@ -147,10 +155,9 @@ def index():
 @login_required
 def get_download_speed():
     """Get download speed"""
-    return (
-        '{ "download_speed" : "'
-        + format_byte(get_total_download_speed())
-        + '/s" , "upload_speed" : "0.00 B/s" } '
+    return jsonify(
+        download_speed=format_byte(get_total_download_speed()) + "/s",
+        upload_speed="0.00 B/s",
     )
 
 
@@ -187,7 +194,7 @@ def get_download_list():
     already_down = request.args.get("already_down") == "true"
 
     download_result = get_download_result()
-    result = "["
+    items = []
     for chat_id, messages in download_result.items():
         for idx, value in messages.items():
             is_already_down = value["down_byte"] == value["total_size"]
@@ -195,28 +202,16 @@ def get_download_list():
             if already_down and not is_already_down:
                 continue
 
-            if result != "[":
-                result += ","
-            download_speed = format_byte(value["download_speed"]) + "/s"
-            result += (
-                '{ "chat":"'
-                + f"{chat_id}"
-                + '", "id":"'
-                + f"{idx}"
-                + '", "filename":"'
-                + os.path.basename(value["file_name"])
-                + '", "total_size":"'
-                + f'{format_byte(value["total_size"])}'
-                + '" ,"download_progress":"'
-            )
-            result += (
-                f'{round(value["down_byte"] / value["total_size"] * 100, 1)}'
-                + '" ,"download_speed":"'
-                + download_speed
-                + '" ,"save_path":"'
-                + value["file_name"].replace("\\", "/")
-                + '"}'
-            )
+            total_size = value["total_size"]
+            progress = round(value["down_byte"] / total_size * 100, 1) if total_size > 0 else 0
+            items.append({
+                "chat": str(chat_id),
+                "id": str(idx),
+                "filename": os.path.basename(value["file_name"]),
+                "total_size": format_byte(total_size),
+                "download_progress": str(progress),
+                "download_speed": format_byte(value["download_speed"]) + "/s",
+                "save_path": value["file_name"].replace("\\", "/"),
+            })
 
-    result += "]"
-    return result
+    return jsonify(items)

@@ -158,6 +158,8 @@ class BaseFilter:
         elif p[2] == "*":
             p[0] = p[1] * p[3]
         elif p[2] == "/":
+            if p[3] == 0:
+                raise ValueError("Division by zero")
             p[0] = p[1] / p[3]
 
         self._output(f"binop {p[1]} {p[2]} {p[3]} = {p[0]}")
@@ -167,7 +169,7 @@ class BaseFilter:
         | expression '<' expression"""
         self.check_type(p)
         if isinstance(p[1], NoneObj) or isinstance(p[3], NoneObj):
-            p[0] = True
+            p[0] = False
             return
 
         if p[1] is None or p[3] is None:
@@ -186,7 +188,7 @@ class BaseFilter:
         "expression : expression GE expression"
         self.check_type(p)
         if isinstance(p[1], NoneObj) or isinstance(p[3], NoneObj):
-            p[0] = True
+            p[0] = False
             return
 
         if p[1] is None or p[3] is None:
@@ -200,7 +202,7 @@ class BaseFilter:
         "expression : expression LE expression"
         self.check_type(p)
         if isinstance(p[1], NoneObj) or isinstance(p[3], NoneObj):
-            p[0] = True
+            p[0] = False
             return
 
         if p[1] is None or p[3] is None:
@@ -214,7 +216,7 @@ class BaseFilter:
         "expression : expression EQ expression"
         self.check_type(p)
         if isinstance(p[1], NoneObj) or isinstance(p[3], NoneObj):
-            p[0] = True
+            p[0] = False
             return
 
         if p[1] is None or p[3] is None:
@@ -223,13 +225,13 @@ class BaseFilter:
 
         if isinstance(p[3], ReString):
             if not isinstance(p[1], str):
-                p[0] = 0
+                p[0] = False
                 return
             p[0] = re.fullmatch(p[3].re_string, p[1], re.MULTILINE) is not None
             self._output(f"{p[1]} {p[2]} {p[3].re_string} {p[0]}")
         elif isinstance(p[1], ReString):
             if not isinstance(p[3], str):
-                p[0] = 0
+                p[0] = False
                 return
             p[0] = re.fullmatch(p[1].re_string, p[3], re.MULTILINE) is not None
             self._output(f"{p[1]} {p[2]} {p[3].re_string} {p[0]}")
@@ -241,7 +243,7 @@ class BaseFilter:
         "expression : expression NE expression"
         self.check_type(p)
         if isinstance(p[1], NoneObj) or isinstance(p[3], NoneObj):
-            p[0] = True
+            p[0] = False
             return
 
         if p[1] is None or p[3] is None:
@@ -249,13 +251,13 @@ class BaseFilter:
             return
         if isinstance(p[3], ReString):
             if not isinstance(p[1], str):
-                p[0] = 0
+                p[0] = False
                 return
             p[0] = re.fullmatch(p[3].re_string, p[1], re.MULTILINE) is None
             self._output(f"{p[1]} {p[2]} {p[3].re_string} {p[0]}")
         elif isinstance(p[1], ReString):
             if not isinstance(p[3], str):
-                p[0] = 0
+                p[0] = False
                 return
             p[0] = re.fullmatch(p[1].re_string, p[3], re.MULTILINE) is None
             self._output(f"{p[1]} {p[2]} {p[3].re_string} {p[0]}")
@@ -323,17 +325,17 @@ class BaseFilter:
 
     def check_type(self, p):
         """Check filter type if is right"""
-        if p[1] is None or p[1] is NoneObj or p[3] is None or p[3] is NoneObj:
+        if p[1] is None or isinstance(p[1], NoneObj) or p[3] is None or isinstance(p[3], NoneObj):
             return
         if isinstance(p[1], str):
             if not isinstance(p[3], str) and not isinstance(p[3], ReString):
                 raise ValueError(f"{p[1]} is str but {p[3]} is not")
-        elif isinstance(p[1], int):
-            if not isinstance(p[3], int):
-                raise ValueError(f"{p[1]} is int but {p[3]} is not")
         elif isinstance(p[1], bool):
             if not isinstance(p[3], bool):
                 raise ValueError(f"{p[1]} is bool but {p[3]} is not")
+        elif isinstance(p[1], int):
+            if not isinstance(p[3], int):
+                raise ValueError(f"{p[1]} is int but {p[3]} is not")
         elif isinstance(p[1], datetime):
             if not isinstance(p[3], datetime):
                 raise ValueError(f"{p[1]} is datetime but {p[3]} is not")
