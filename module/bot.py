@@ -67,7 +67,7 @@ class DownloadBot:
         meta = MetaData(datetime(2022, 8, 5, 14, 35, 12), 0, "", 0, 0, 0, "", 0)
         self.filter.set_meta_data(meta)
 
-        self.download_filter: List[str] = []
+        self.download_filter: str = ""
         self.task_id: int = 0
         self.reply_task = None
 
@@ -528,7 +528,8 @@ async def add_filter(client: pyrogram.Client, message: pyrogram.types.Message):
     filter_str = replace_date_time(args[1])
     res, err = _bot.filter.check_filter(filter_str)
     if res:
-        _bot.app.down = args[1]
+        _bot.download_filter = args[1]
+        _bot.update_config()
         await client.send_message(
             message.from_user.id, f"{_t('Add download filter')} : {args[1]}"
         )
@@ -879,7 +880,7 @@ async def download_from_link(client: pyrogram.Client, message: pyrogram.types.Me
 
     msg = (
         f"1. {_t('Directly download a single message')}\n"
-        "<i>https://t.me/12000000/1</i>\n\n"
+        "<i>https://t.me/c/12000000/1</i>\n\n"
     )
 
     text = message.text.split()
@@ -926,7 +927,7 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
         f"{_t('The private group (channel) link is a random group message link')}\n\n"
         f"2. {_t('The download starts from the N message to the end of the M message')}. "
         f"{_t('When M is 0, it means the last message. The filter is optional')}\n"
-        f"<i>/download https://t.me/12000000 N M [filter]</i>\n\n"
+        f"<i>/download https://t.me/c/12000000/123 N M [filter]</i>\n\n"
     )
 
     args = message.text.split(maxsplit=4)

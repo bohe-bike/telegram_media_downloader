@@ -23,7 +23,7 @@ class CloudDriveConfig:
         self,
         enable_upload_file: bool = False,
         before_upload_file_zip: bool = False,
-        after_upload_file_delete: bool = True,
+        after_upload_file_delete: bool = False,
         rclone_path: str = os.path.join(
             os.path.abspath("."), "rclone", f"rclone{platform.get_exe_ext()}"
         ),

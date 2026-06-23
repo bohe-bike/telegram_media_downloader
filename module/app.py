@@ -465,7 +465,7 @@ class Application:
 
         if _config.get("upload_drive"):
             upload_drive_config = _config["upload_drive"]
-            if upload_drive_config.get("enable_upload_file"):
+            if "enable_upload_file" in upload_drive_config:
                 self.cloud_drive_config.enable_upload_file = upload_drive_config[
                     "enable_upload_file"
                 ]
@@ -476,12 +476,12 @@ class Application:
             if upload_drive_config.get("remote_dir"):
                 self.cloud_drive_config.remote_dir = upload_drive_config["remote_dir"]
 
-            if upload_drive_config.get("before_upload_file_zip"):
+            if "before_upload_file_zip" in upload_drive_config:
                 self.cloud_drive_config.before_upload_file_zip = upload_drive_config[
                     "before_upload_file_zip"
                 ]
 
-            if upload_drive_config.get("after_upload_file_delete"):
+            if "after_upload_file_delete" in upload_drive_config:
                 self.cloud_drive_config.after_upload_file_delete = upload_drive_config[
                     "after_upload_file_delete"
                 ]
@@ -707,9 +707,10 @@ class Application:
         elif self.cloud_drive_config.upload_adapter == "aligo":
             ret = await self.loop.run_in_executor(
                 self.executor,
-                CloudDrive.aligo_upload_file(
-                    self.cloud_drive_config, self.save_path, local_file_path
-                ),
+                CloudDrive.aligo_upload_file,
+                self.cloud_drive_config,
+                self.save_path,
+                local_file_path,
             )
 
         return ret
