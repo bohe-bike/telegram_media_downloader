@@ -3,21 +3,21 @@
 
 <p align="center">
 <a href="https://deepwiki.com/tangyoha/telegram_media_downloader"><img alt="DeepWiki" src="https://img.shields.io/badge/DeepWiki-Documentation-blue"></a>
-<a href="https://github.com/tangyoha/telegram_media_downloader/actions"><img alt="Unittest" src="https://github.com/tangyoha/telegram_media_downloader/workflows/Unittest/badge.svg"></a>
-<a href="https://codecov.io/gh/tangyoha/telegram_media_downloader"><img alt="Coverage Status" src="https://codecov.io/gh/tangyoha/telegram_media_downloader/branch/master/graph/badge.svg"></a>
-<a href="https://github.com/tangyoha/telegram_media_downloader/blob/master/LICENSE"><img alt="License: MIT" src="https://black.readthedocs.io/en/stable/_static/license.svg"></a>
+<a href="https://github.com/bohe-bike/telegram_media_downloader/actions"><img alt="Unittest" src="https://github.com/bohe-bike/telegram_media_downloader/workflows/Unittest/badge.svg"></a>
+<a href="https://codecov.io/gh/bohe-bike/telegram_media_downloader"><img alt="Coverage Status" src="https://codecov.io/gh/bohe-bike/telegram_media_downloader/branch/master/graph/badge.svg"></a>
+<a href="https://github.com/bohe-bike/telegram_media_downloader/blob/master/LICENSE"><img alt="License: MIT" src="https://black.readthedocs.io/en/stable/_static/license.svg"></a>
 <a href="https://github.com/python/black"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
-<a href="https://github.com/tangyoha/telegram_media_downloader/releases">
-<img alt="Code style: black" src="https://img.shields.io/github/v/release/tangyoha/telegram_media_downloader?display_name=tag"></a>
+<a href="https://github.com/bohe-bike/telegram_media_downloader/releases">
+<img alt="Code style: black" src="https://img.shields.io/github/v/release/bohe-bike/telegram_media_downloader?display_name=tag"></a>
 </p>
 
 <h3 align="center">
   <a href="./README_CN.md">中文</a><span> · </span>
-  <a href="https://github.com/tangyoha/telegram_media_downloader/discussions/categories/ideas">Feature request</a>
+  <a href="https://github.com/bohe-bike/telegram_media_downloader/discussions/categories/ideas">Feature request</a>
   <span> · </span>
-  <a href="https://github.com/tangyoha/telegram_media_downloader/issues">Report a bug</a>
+  <a href="https://github.com/bohe-bike/telegram_media_downloader/issues">Report a bug</a>
   <span> · </span>
-  Support: <a href="https://github.com/tangyoha/telegram_media_downloader/discussions">Discussions</a>
+  Support: <a href="https://github.com/bohe-bike/telegram_media_downloader/discussions">Discussions</a>
   <span> & </span>
   <a href="https://t.me/TeegramMediaDownload">Telegram Community</a>
 </h3>
@@ -41,7 +41,7 @@
 
 ### Robot
 
-> Need to configure bot_token, please refer to [Documentation](https://github.com/tangyoha/telegram_media_downloader/wiki/How-to-Download-Using-Robots)
+> Need to configure bot_token, please refer to [Documentation](https://github.com/bohe-bike/telegram_media_downloader/wiki/How-to-Download-Using-Robots)
 
 <img alt="Code style: black" style="width:60%; high:30%; " src="./screenshot/bot.gif"/>
 
@@ -54,14 +54,14 @@
 
 ### Version release plan
 
-* [v2.2.0](https://github.com/tangyoha/telegram_media_downloader/issues/2)
+* [v2.2.0](https://github.com/bohe-bike/telegram_media_downloader/issues/2)
 
 ## Installation
 
 For *nix os distributions with `make` availability
 
 ```sh
-git clone https://github.com/tangyoha/telegram_media_downloader.git
+git clone https://github.com/bohe-bike/telegram_media_downloader.git
 cd telegram_media_downloader
 make install
 ```
@@ -69,7 +69,7 @@ make install
 For Windows which doesn't have `make` inbuilt
 
 ```sh
-git clone https://github.com/tangyoha/telegram_media_downloader.git
+git clone https://github.com/bohe-bike/telegram_media_downloader.git
 cd telegram_media_downloader
 pip3 install -r requirements.txt
 ```
@@ -79,11 +79,11 @@ pip3 install -r requirements.txt
 
 Make sure you have **docker** and **docker-compose** installed
 ```sh
-docker pull tangyoha/telegram_media_downloader:latest
+docker pull sbkdockerhub/telegram_media_downloader:latest
 mkdir -p ~/app && mkdir -p ~/app/log/ && cd ~/app
-wget https://raw.githubusercontent.com/tangyoha/telegram_media_downloader/master/docker-compose.yaml -O docker-compose.yaml
-wget https://raw.githubusercontent.com/tangyoha/telegram_media_downloader/master/config.yaml -O config.yaml
-wget https://raw.githubusercontent.com/tangyoha/telegram_media_downloader/master/data.yaml -O data.yaml
+wget https://raw.githubusercontent.com/bohe-bike/telegram_media_downloader/master/docker-compose.yaml -O docker-compose.yaml
+wget https://raw.githubusercontent.com/bohe-bike/telegram_media_downloader/master/config.yaml -O config.yaml
+wget https://raw.githubusercontent.com/bohe-bike/telegram_media_downloader/master/data.yaml -O data.yaml
 # vi config.yaml and docker-compose.yaml
 vi config.yaml
 
@@ -95,7 +95,7 @@ docker-compose run --rm telegram_media_downloader
 docker-compose up -d
 
 # Upgrade
-docker pull tangyoha/telegram_media_downloader:latest
+docker pull sbkdockerhub/telegram_media_downloader:latest
 cd ~/app
 docker-compose down
 docker-compose up -d
@@ -205,7 +205,7 @@ enable_download_txt: false
 - **bot_token** - Your bot token
 - **chat** - Chat list
   - `chat_id` -  The id of the chat/channel you want to download media. Which you get from the above-mentioned steps.
-  - `download_filter` - Download filter, see [How to use Filter](https://github.com/tangyoha/telegram_media_downloader/wiki/How-to-use-Filter)
+  - `download_filter` - Download filter, see [How to use Filter](https://github.com/bohe-bike/telegram_media_downloader/wiki/How-to-use-Filter)
   - `last_read_message_id` - If it is the first time you are going to read the channel let it be `0` or if you have already used this script to download media it will have some numbers which are auto-updated after the scripts successful execution. Don't change it.
   - `ids_to_retry` - `Leave it as it is.` This is used by the downloader script to keep track of all skipped downloads so that it can be downloaded during the next execution of the script.
 - **media_types** - Type of media to download, you can update which type of media you want to download it can be one or any of the available types.
@@ -219,7 +219,7 @@ enable_download_txt: false
   - `enable_upload_file` - Enable upload file, default `false`.
   - `remote_dir` - Where you upload, like `drive_id/drive_name`.
   - `upload_adapter` - Upload file adapter, which can be `rclone`, `aligo`. If it is `rclone`, it supports all `rclone` servers that support uploading. If it is `aligo`, it supports uploading `Ali cloud disk`.
-  - `rclone_path` - RClone exe path, see [How to use rclone](https://github.com/tangyoha/telegram_media_downloader/wiki/Rclone)
+  - `rclone_path` - RClone exe path, see [How to use rclone](https://github.com/bohe-bike/telegram_media_downloader/wiki/Rclone)
   - `before_upload_file_zip` - Zip file before upload, default `false`.
   - `after_upload_file_delete` - Delete file after upload success, default `false`.
 - **file_name_prefix** - Custom file name, use the same as **file_path_prefix**
@@ -283,15 +283,15 @@ The following environment variables are optional and can be used to customize th
 
 ### Contributing Guidelines
 
-Read through our [contributing guidelines](https://github.com/tangyoha/telegram_media_downloader/blob/master/CONTRIBUTING.md) to learn about our submission process, coding rules and more.
+Read through our [contributing guidelines](https://github.com/bohe-bike/telegram_media_downloader/blob/master/CONTRIBUTING.md) to learn about our submission process, coding rules and more.
 
 ### Want to Help?
 
-Want to file a bug, contribute some code, or improve documentation? Excellent! Read up on our guidelines for [contributing](https://github.com/tangyoha/telegram_media_downloader/blob/master/CONTRIBUTING.md).
+Want to file a bug, contribute some code, or improve documentation? Excellent! Read up on our guidelines for [contributing](https://github.com/bohe-bike/telegram_media_downloader/blob/master/CONTRIBUTING.md).
 
 ### Code of Conduct
 
-Help us keep Telegram Media Downloader open and inclusive. Please read and follow our [Code of Conduct](https://github.com/tangyoha/telegram_media_downloader/blob/master/CODE_OF_CONDUCT.md).
+Help us keep Telegram Media Downloader open and inclusive. Please read and follow our [Code of Conduct](https://github.com/bohe-bike/telegram_media_downloader/blob/master/CODE_OF_CONDUCT.md).
 
 
 ### Sponsor

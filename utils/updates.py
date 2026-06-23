@@ -43,7 +43,7 @@ def get_latest_release(proxy_config: dict = None) -> dict:
             proxies["https"] = f"{scheme}://{username}:{password}@{hostname}:{port}"
     try:
         response = requests.get(
-            url="https://api.github.com/repos/tangyoha/telegram_media_downloader/releases/latest",
+            url="https://api.github.com/repos/bohe-bike/telegram_media_downloader/releases/latest",
             headers=headers,
             proxies=proxies,
             timeout=60,

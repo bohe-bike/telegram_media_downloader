@@ -26,7 +26,7 @@ class FakeHTTPSResponse:
 
     def read(self):
         if self.status == 200:
-            return b'{"name":"v0.0.0 2022-03-02","tag_name":"v0.0.0", "html_url":"https://github.com/tangyoha/telegram_media_downloader/releases/tag/v0.0.0"}'
+            return b'{"name":"v0.0.0 2022-03-02","tag_name":"v0.0.0", "html_url":"https://github.com/bohe-bike/telegram_media_downloader/releases/tag/v0.0.0"}'
         else:
             return b"{error}"
 
@@ -56,7 +56,7 @@ class TestUpdates(unittest.TestCase):
             {
                 "name": "v0.0.0 2022-03-02",
                 "tag_name": "v0.0.0",
-                "html_url": "https://github.com/tangyoha/telegram_media_downloader/releases/tag/v0.0.0",
+                "html_url": "https://github.com/bohe-bike/telegram_media_downloader/releases/tag/v0.0.0",
             }
         )
         mock_get.return_value = mock_response
@@ -76,7 +76,7 @@ class TestUpdates(unittest.TestCase):
         self.assertEqual(result["tag_name"], "v0.0.0")
         self.assertEqual(
             result["html_url"],
-            "https://github.com/tangyoha/telegram_media_downloader/releases/tag/v0.0.0",
+            "https://github.com/bohe-bike/telegram_media_downloader/releases/tag/v0.0.0",
         )
 
     @patch("requests.get")
@@ -87,7 +87,7 @@ class TestUpdates(unittest.TestCase):
             {
                 "name": f"v{__version__} 2022-03-02",
                 "tag_name": f"v{__version__}",
-                "html_url": "https://github.com/tangyoha/telegram_media_downloader/releases/tag/v0.0.0",
+                "html_url": "https://github.com/bohe-bike/telegram_media_downloader/releases/tag/v0.0.0",
             }
         )
         mock_get.return_value = mock_response
@@ -130,7 +130,7 @@ class TestUpdates(unittest.TestCase):
         mock_get_latest_release.return_value = {
             "name": "v0.0.0 2022-03-02",
             "tag_name": "v0.0.0",
-            "html_url": "https://github.com/tangyoha/telegram_media_downloader/releases/tag/v0.0.0",
+            "html_url": "https://github.com/bohe-bike/telegram_media_downloader/releases/tag/v0.0.0",
         }
 
         # Call the function with a test proxy_config
