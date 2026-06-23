@@ -2,7 +2,7 @@ version: "3.3"
 
 services:
   telegram_media_downloader:
-    image: tangyoha/telegram_media_downloader:latest
+    image: sbkdockerhub/telegram_media_downloader:latest
     build: .
     ports:
       # Here is what you need to edit
