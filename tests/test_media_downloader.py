@@ -16,10 +16,13 @@ from media_downloader import (
     _check_config,
     _get_media_meta,
     _is_exist,
+    _schedule_failed_download_retry,
     app,
+    add_download_task,
     download_all_chat,
     download_media,
     download_task,
+    finalize_download_task,
     main,
     save_msg_to_file,
     worker,
@@ -139,6 +142,15 @@ async def new_upload_telegram_chat(
     message: pyrogram.types.Message,
     download_status: DownloadStatus,
     file_name: str = None,
+):
+    pass
+
+
+async def new_report_bot_download_status(
+    client: pyrogram.Client,
+    node: TaskNode,
+    download_status: DownloadStatus,
+    download_size: int = 0,
 ):
     pass
 
@@ -852,6 +864,63 @@ class MediaDownloaderTestCase(unittest.TestCase):
         app.chat_download_config[8654123].download_filter = "id != 1213"
         self.loop.run_until_complete(download_all_chat(client))
         moc_put.assert_called()
+
+    @mock.patch("media_downloader.asyncio.Queue.put")
+    def test_add_download_task_retry_does_not_increase_total_task(self, mock_put):
+        node = TaskNode(chat_id=-123)
+        message = MockMessage(id=99, media=True)
+
+        self.loop.run_until_complete(add_download_task(message, node))
+        self.loop.run_until_complete(add_download_task(message, node, is_retry=True))
+
+        self.assertEqual(node.total_task, 1)
+        self.assertEqual(mock_put.call_count, 2)
+
+    @mock.patch("media_downloader.app.loop.create_task")
+    def test_schedule_failed_download_retry(self, mock_create_task):
+        rest_app(MOCK_CONF)
+        app.failed_download_retry_count = 2
+        node = TaskNode(chat_id=-123)
+        message = MockMessage(id=77, media=True)
+        mock_create_task.side_effect = lambda coro: coro.close()
+
+        scheduled = _schedule_failed_download_retry(
+            message, node, DownloadStatus.FailedDownload
+        )
+
+        self.assertEqual(scheduled, True)
+        self.assertEqual(node.failed_download_retry_count[77], 1)
+        mock_create_task.assert_called_once()
+
+    @mock.patch(
+        "media_downloader.report_bot_download_status",
+        new=new_report_bot_download_status,
+    )
+    @mock.patch("media_downloader.upload_telegram_chat", new=new_upload_telegram_chat)
+    def test_finalize_download_task_updates_finish_task(self):
+        rest_app(MOCK_CONF)
+        message = MockMessage(id=88, media=True, chat_id=8654123, chat_title="123456")
+        node = TaskNode(chat_id=8654123)
+
+        self.loop.run_until_complete(
+            finalize_download_task(
+                MockClient(),
+                message,
+                node,
+                DownloadStatus.FailedDownload,
+                None,
+                0,
+            )
+        )
+
+        self.assertEqual(
+            app.chat_download_config[8654123].finish_task,
+            1,
+        )
+        self.assertEqual(
+            node.download_status[88],
+            DownloadStatus.FailedDownload,
+        )
 
     def test_can_download(self):
         file_formats = {

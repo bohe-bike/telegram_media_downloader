@@ -264,13 +264,15 @@ async def _get_media_meta(
 async def add_download_task(
     message: pyrogram.types.Message,
     node: TaskNode,
+    is_retry: bool = False,
 ):
     """Add Download task"""
     if message.empty:
         return False
     node.download_status[message.id] = DownloadStatus.Downloading
     await queue.put((message, node))
-    node.total_task += 1
+    if not is_retry:
+        node.total_task += 1
     return True
 
 
@@ -304,7 +306,7 @@ async def save_msg_to_file(
 async def download_task(
     client: pyrogram.Client, message: pyrogram.types.Message, node: TaskNode
 ):
-    """Download and Forward media"""
+    """Download media and return its final local status."""
 
     download_status, file_name = await download_media(
         client, message, app.media_types, app.file_formats, node
@@ -313,38 +315,55 @@ async def download_task(
     if app.enable_download_txt and message.text and not message.media:
         download_status, file_name = await save_msg_to_file(app, node.chat_id, message)
 
-    if not node.bot:
-        app.set_download_id(node, message.id, download_status)
-
-    node.download_status[message.id] = download_status
-
     try:
         file_size = os.path.getsize(file_name) if file_name else 0
     except FileNotFoundError:
         file_size = 0
 
-    await upload_telegram_chat(
-        client,
-        node.upload_user if node.upload_user else client,
-        app,
-        node,
-        message,
-        download_status,
-        file_name,
-    )
+    return download_status, file_name, file_size
 
-    # rclone upload
-    if (
-        not node.upload_telegram_chat_id
-        and download_status is DownloadStatus.SuccessDownload
-    ):
-        ui_file_name = file_name
-        if app.hide_file_name:
-            ui_file_name = f"****{os.path.splitext(file_name)[-1]}"
-        if await app.upload_file(
-            file_name, update_cloud_upload_stat, (node, message.id, ui_file_name)
+
+async def finalize_download_task(
+    client: pyrogram.Client,
+    message: pyrogram.types.Message,
+    node: TaskNode,
+    download_status: DownloadStatus,
+    file_name: Optional[str],
+    file_size: int = 0,
+):
+    """Persist task state and run post-download hooks."""
+
+    if not node.bot:
+        app.set_download_id(node, message.id, download_status)
+    node.download_status[message.id] = download_status
+    node.failed_download_retry_count.pop(message.id, None)
+
+    try:
+        await upload_telegram_chat(
+            client,
+            node.upload_user if node.upload_user else client,
+            app,
+            node,
+            message,
+            download_status,
+            file_name,
+        )
+
+        # rclone upload
+        if (
+            not node.upload_telegram_chat_id
+            and download_status is DownloadStatus.SuccessDownload
+            and file_name
         ):
-            node.upload_success_count += 1
+            ui_file_name = file_name
+            if app.hide_file_name:
+                ui_file_name = f"****{os.path.splitext(file_name)[-1]}"
+            if await app.upload_file(
+                file_name, update_cloud_upload_stat, (node, message.id, ui_file_name)
+            ):
+                node.upload_success_count += 1
+    except Exception as e:
+        logger.exception(f"Message[{message.id}]: post-download hook failed: {e}")
 
     await report_bot_download_status(
         node.bot,
@@ -352,6 +371,62 @@ async def download_task(
         download_status,
         file_size,
     )
+
+
+def _should_retry_failed_download(
+    node: TaskNode,
+    message_id: int,
+    download_status: DownloadStatus,
+) -> bool:
+    """Whether a failed task should be retried again in this run."""
+
+    if download_status is not DownloadStatus.FailedDownload:
+        return False
+
+    if app.failed_download_retry_count <= 0:
+        return False
+
+    current_retry = node.failed_download_retry_count.get(message_id, 0)
+    return current_retry < app.failed_download_retry_count
+
+
+async def _retry_failed_download_later(
+    message: pyrogram.types.Message,
+    node: TaskNode,
+    retry_index: int,
+):
+    """Requeue a failed task after a short cooldown."""
+
+    wait_seconds = max(app.failed_download_retry_interval, 0)
+    logger.warning(
+        f"Message[{message.id}]: download failed, scheduling retry "
+        f"{retry_index}/{app.failed_download_retry_count} in {wait_seconds} seconds."
+    )
+    await asyncio.sleep(wait_seconds)
+
+    if node.is_stop_transmission:
+        if node.chat_id in app.chat_download_config:
+            app.chat_download_config[node.chat_id].finish_task += 1
+        return
+
+    if app.is_running:
+        await add_download_task(message, node, is_retry=True)
+
+
+def _schedule_failed_download_retry(
+    message: pyrogram.types.Message,
+    node: TaskNode,
+    download_status: DownloadStatus,
+) -> bool:
+    """Schedule a same-run retry for a failed download."""
+
+    if not _should_retry_failed_download(node, message.id, download_status):
+        return False
+
+    retry_index = node.failed_download_retry_count.get(message.id, 0) + 1
+    node.failed_download_retry_count[message.id] = retry_index
+    app.loop.create_task(_retry_failed_download_later(message, node, retry_index))
+    return True
 
 
 # pylint: disable = R0915,R0914
@@ -552,19 +627,50 @@ async def worker(client: pyrogram.client.Client):
             node: TaskNode = item[1]
 
             if node.is_stop_transmission:
-                node.finish_task += 1
+                if node.chat_id in app.chat_download_config:
+                    app.chat_download_config[node.chat_id].finish_task += 1
                 continue
 
+            download_status = DownloadStatus.FailedDownload
+            file_name = None
+            file_size = 0
             if node.client:
-                await download_task(node.client, message, node)
+                download_status, file_name, file_size = await download_task(
+                    node.client, message, node
+                )
             else:
-                await download_task(client, message, node)
+                download_status, file_name, file_size = await download_task(
+                    client, message, node
+                )
+
+            if _schedule_failed_download_retry(message, node, download_status):
+                continue
+
+            await finalize_download_task(
+                client,
+                message,
+                node,
+                download_status,
+                file_name,
+                file_size,
+            )
         except Exception as e:
             logger.exception(f"{e}")
             if node and message:
                 try:
+                    if _schedule_failed_download_retry(
+                        message, node, DownloadStatus.FailedDownload
+                    ):
+                        continue
                     node.download_status[message.id] = DownloadStatus.FailedDownload
-                    node.finish_task += 1
+                    await finalize_download_task(
+                        client,
+                        message,
+                        node,
+                        DownloadStatus.FailedDownload,
+                        None,
+                        0,
+                    )
                 except Exception:
                     pass
 

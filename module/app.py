@@ -172,6 +172,7 @@ class TaskNode:
         self.download_status: dict = {}
         self.upload_status: dict = {}
         self.upload_stat_dict: dict = {}
+        self.failed_download_retry_count: dict = {}
         self.topic_id = topic_id
         self.reply_to_message = None
         self.cloud_drive_upload_stat_dict: dict = {}
@@ -404,6 +405,8 @@ class Application:
         self.debug_web: bool = False
         self.log_level: str = "INFO"
         self.start_timeout: int = 60
+        self.failed_download_retry_count: int = 1
+        self.failed_download_retry_interval: int = 30
         self.allowed_user_ids: yaml.comments.CommentedSeq = yaml.comments.CommentedSeq(
             []
         )
@@ -528,6 +531,19 @@ class Application:
 
         self.start_timeout = get_config(
             _config, "start_timeout", self.start_timeout, int
+        )
+
+        self.failed_download_retry_count = get_config(
+            _config,
+            "failed_download_retry_count",
+            self.failed_download_retry_count,
+            int,
+        )
+        self.failed_download_retry_interval = get_config(
+            _config,
+            "failed_download_retry_interval",
+            self.failed_download_retry_interval,
+            int,
         )
 
         self.allowed_user_ids = get_config(
