@@ -348,6 +348,8 @@ class MockClient:
             raise pyrogram.errors.exceptions.unauthorized_401.Unauthorized
         elif mock_message.id == 11:
             raise TypeError
+        elif mock_message.id == 14:
+            raise TimeoutError("Request timed out")
         elif mock_message.id == 420:
             raise pyrogram.errors.exceptions.flood_420.FloodWait(value=420)
         elif mock_message.id == 421:
@@ -783,6 +785,25 @@ class MediaDownloaderTestCase(unittest.TestCase):
         self.assertEqual((DownloadStatus.FailedDownload, None), result)
         mock_logger.error.assert_called_with(
             "Message[11]: Timing out after 3 reties, download skipped."
+        )
+
+        # Test built-in timeout error
+        message = MockMessage(
+            id=14,
+            media=True,
+            video=MockVideo(
+                file_name="sample_video.mov",
+                mime_type="video/mov",
+            ),
+        )
+        result = self.loop.run_until_complete(
+            async_download_media(
+                client, message, ["video", "photo"], {"video": ["all"]}
+            )
+        )
+        self.assertEqual((DownloadStatus.FailedDownload, None), result)
+        mock_logger.error.assert_called_with(
+            "Message[14]: Timing out after 3 reties, download skipped."
         )
 
         # Test file name with out suffix

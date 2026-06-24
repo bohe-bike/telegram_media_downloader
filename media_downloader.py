@@ -569,7 +569,7 @@ async def download_media(
             logger.warning("Message[{}]: FlowWait {}", message.id, wait_err.value)
             if _check_timeout(retry, message.id):
                 break
-        except TypeError:
+        except (TimeoutError, TypeError):
             # pylint: disable = C0301
             logger.warning(
                 f"{_t('Timeout Error occurred when downloading Message')}[{message.id}], "

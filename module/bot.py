@@ -296,11 +296,6 @@ class DownloadBot:
             )
         )
 
-        try:
-            await send_help_str(self.bot, admin.id)
-        except Exception as e:
-            logger.warning(f"Failed to send help: {e}")
-
         self.reply_task = _bot.app.loop.create_task(_bot.update_reply_message())
 
         self.bot.add_handler(
