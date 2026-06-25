@@ -29,6 +29,8 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(app.restart_program, False)
         self.assertEqual(app.cloud_drive_config.after_upload_file_delete, False)
         self.assertEqual(app.failed_download_retry_count, 0)
+        self.assertEqual(app.download_media_timeout, 0)
+        self.assertEqual(app.run_until_all_task_finish_timeout, 3600)
 
         app.chat_download_config[123] = ChatDownloadConfig()
         app.chat_download_config[123].last_read_message_id = 13
@@ -62,6 +64,23 @@ class AppTestCase(unittest.TestCase):
             [6, 7],
             app.app_data["chat"][0]["ids_to_retry"],
         )
+
+    def test_stability_timeout_config_values_are_applied(self):
+        app = Application("", "")
+
+        app.assign_config(
+            {
+                "api_id": 123,
+                "api_hash": "hash",
+                "media_types": [],
+                "file_formats": {},
+                "download_media_timeout": 1800,
+                "run_until_all_task_finish_timeout": 0,
+            }
+        )
+
+        self.assertEqual(app.download_media_timeout, 1800)
+        self.assertEqual(app.run_until_all_task_finish_timeout, 0)
 
     def test_upload_drive_false_values_are_applied(self):
         app = Application("", "")

@@ -405,6 +405,8 @@ class Application:
         self.debug_web: bool = False
         self.log_level: str = "INFO"
         self.start_timeout: int = 60
+        self.download_media_timeout: int = 0
+        self.run_until_all_task_finish_timeout: int = 3600
         self.failed_download_retry_count: int = 0
         self.failed_download_retry_interval: int = 30
         self.allowed_user_ids: yaml.comments.CommentedSeq = yaml.comments.CommentedSeq(
@@ -531,6 +533,15 @@ class Application:
 
         self.start_timeout = get_config(
             _config, "start_timeout", self.start_timeout, int
+        )
+        self.download_media_timeout = get_config(
+            _config, "download_media_timeout", self.download_media_timeout, int
+        )
+        self.run_until_all_task_finish_timeout = get_config(
+            _config,
+            "run_until_all_task_finish_timeout",
+            self.run_until_all_task_finish_timeout,
+            int,
         )
 
         self.failed_download_retry_count = get_config(

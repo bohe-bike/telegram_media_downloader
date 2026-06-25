@@ -190,6 +190,8 @@ file_name_prefix:
 - file_name
 file_name_prefix_split: ' - '
 max_download_task: 5
+download_media_timeout: 0
+run_until_all_task_finish_timeout: 3600
 failed_download_retry_count: 0
 failed_download_retry_interval: 30
 web_host: 127.0.0.1
@@ -230,6 +232,8 @@ enable_download_txt: false
   - `caption` - The title of the message (may be empty)
 - **file_name_prefix_split** - Custom file name prefix symbol, the default is `-`
 - **max_download_task** - The maximum number of task download tasks, the default is 5.
+- **download_media_timeout** - Hard timeout in seconds for a single media download. `0` disables it. Default `0`.
+- **run_until_all_task_finish_timeout** - Maximum wait in seconds for bot mode task completion. `0` disables automatic exit. Default `3600`.
 - **failed_download_retry_count** - Extra same-run retries after a task is finally marked failed. Default `0`.
 - **failed_download_retry_interval** - Delay in seconds before a same-run retry is requeued. Default `30`.
 - **hide_file_name** - Whether to hide the web interface file name, default `false`

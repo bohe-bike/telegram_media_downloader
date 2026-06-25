@@ -50,6 +50,35 @@ class DownloadSizeMismatch(Exception):
     """Raised when downloaded file size doesn't match expected media size."""
 
 
+async def _download_media_with_timeout(
+    client: pyrogram.client.Client,
+    message: pyrogram.types.Message,
+    file_name: str,
+    message_id: int,
+    ui_file_name: str,
+    task_start_time: float,
+    node: TaskNode,
+) -> Optional[str]:
+    """Download media and optionally cap how long a single task can run."""
+
+    download_coro = client.download_media(
+        message,
+        file_name=file_name,
+        progress=update_download_status,
+        progress_args=(
+            message_id,
+            ui_file_name,
+            task_start_time,
+            node,
+            client,
+        ),
+    )
+
+    if app.download_media_timeout <= 0:
+        return await download_coro
+
+    return await asyncio.wait_for(download_coro, timeout=app.download_media_timeout)
+
 
 queue: asyncio.Queue = asyncio.Queue()
 RETRY_TIME_OUT = 3
@@ -522,17 +551,14 @@ async def download_media(
 
     for retry in range(3):
         try:
-            temp_download_path = await client.download_media(
+            temp_download_path = await _download_media_with_timeout(
+                client,
                 message,
-                file_name=temp_file_name,
-                progress=update_download_status,
-                progress_args=(
-                    message_id,
-                    ui_file_name,
-                    task_start_time,
-                    node,
-                    client,
-                ),
+                temp_file_name,
+                message_id,
+                ui_file_name,
+                task_start_time,
+                node,
             )
 
             if temp_download_path and isinstance(temp_download_path, str):
@@ -569,7 +595,7 @@ async def download_media(
             logger.warning("Message[{}]: FlowWait {}", message.id, wait_err.value)
             if _check_timeout(retry, message.id):
                 break
-        except (TimeoutError, TypeError):
+        except (TimeoutError, TypeError, ConnectionError, OSError):
             # pylint: disable = C0301
             logger.warning(
                 f"{_t('Timeout Error occurred when downloading Message')}[{message.id}], "
@@ -753,7 +779,7 @@ async def download_all_chat(client: pyrogram.Client):
 
 async def run_until_all_task_finish():
     """Normal download"""
-    max_wait = 3600  # 1 hour timeout
+    max_wait = app.run_until_all_task_finish_timeout
     waited = 0
     while True:
         finish: bool = True
@@ -764,7 +790,7 @@ async def run_until_all_task_finish():
         if (not app.bot_token and finish) or app.restart_program:
             break
 
-        if waited >= max_wait:
+        if max_wait > 0 and waited >= max_wait:
             logger.warning("Timeout waiting for tasks to finish, forcing exit.")
             break
 

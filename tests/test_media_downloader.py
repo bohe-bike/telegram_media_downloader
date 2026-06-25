@@ -24,6 +24,7 @@ from media_downloader import (
     download_task,
     finalize_download_task,
     main,
+    run_until_all_task_finish,
     save_msg_to_file,
     worker,
 )
@@ -103,6 +104,7 @@ def rest_app(conf: dict):
     app.save_path = os.path.abspath(".")
     app.api_id: str = ""
     app.api_hash: str = ""
+    app.bot_token: str = ""
     app.media_types: List[str] = []
     app.file_formats: dict = {}
     app.proxy: dict = {}
@@ -119,6 +121,10 @@ def rest_app(conf: dict):
     app.max_concurrent_transmissions: int = 1
     app.web_host: str = "localhost"
     app.web_port: int = 5000
+    app.download_media_timeout: int = 0
+    app.run_until_all_task_finish_timeout: int = 3600
+    app.failed_download_retry_count: int = 0
+    app.failed_download_retry_interval: int = 30
     app.config_file = "config_test.yaml"
     app.app_data_file = "data_test.yaml"
     app.config = conf
@@ -350,6 +356,8 @@ class MockClient:
             raise TypeError
         elif mock_message.id == 14:
             raise TimeoutError("Request timed out")
+        elif mock_message.id == 15:
+            raise ConnectionError("proxy connection lost")
         elif mock_message.id == 420:
             raise pyrogram.errors.exceptions.flood_420.FloodWait(value=420)
         elif mock_message.id == 421:
@@ -806,6 +814,25 @@ class MediaDownloaderTestCase(unittest.TestCase):
             "Message[14]: Timing out after 3 reties, download skipped."
         )
 
+        # Test connection error
+        message = MockMessage(
+            id=15,
+            media=True,
+            video=MockVideo(
+                file_name="sample_video.mov",
+                mime_type="video/mov",
+            ),
+        )
+        result = self.loop.run_until_complete(
+            async_download_media(
+                client, message, ["video", "photo"], {"video": ["all"]}
+            )
+        )
+        self.assertEqual((DownloadStatus.FailedDownload, None), result)
+        mock_logger.error.assert_called_with(
+            "Message[15]: Timing out after 3 reties, download skipped."
+        )
+
         # Test file name with out suffix
         message = MockMessage(
             id=12,
@@ -877,6 +904,31 @@ class MediaDownloaderTestCase(unittest.TestCase):
         )
         self.assertEqual((DownloadStatus.FailedDownload, None), result)
 
+    def test_download_media_hard_timeout(self):
+        class SlowDownloadClient(MockClient):
+            async def download_media(self, *args, **kwargs):
+                await asyncio.sleep(1)
+                return kwargs["file_name"]
+
+        rest_app(MOCK_CONF)
+        app.download_media_timeout = 0.001
+        message = MockMessage(
+            id=16,
+            media=True,
+            video=MockVideo(
+                file_name="sample_video.mov",
+                mime_type="video/mov",
+            ),
+        )
+
+        result = self.loop.run_until_complete(
+            async_download_media(
+                SlowDownloadClient(), message, ["video"], {"video": ["all"]}
+            )
+        )
+
+        self.assertEqual((DownloadStatus.FailedDownload, None), result)
+
     @mock.patch("media_downloader.HookClient", new=MockClient)
     @mock.patch("media_downloader.asyncio.Queue.put")
     def test_download_task(self, moc_put):
@@ -941,6 +993,21 @@ class MediaDownloaderTestCase(unittest.TestCase):
         self.assertEqual(
             node.download_status[88],
             DownloadStatus.FailedDownload,
+        )
+
+    @mock.patch("media_downloader.asyncio.sleep", return_value=None)
+    @mock.patch("media_downloader.logger")
+    def test_run_until_all_task_finish_uses_configured_timeout(
+        self, mock_logger, _
+    ):
+        rest_app(MOCK_CONF)
+        app.bot_token = "token"
+        app.run_until_all_task_finish_timeout = 1
+
+        self.loop.run_until_complete(run_until_all_task_finish())
+
+        mock_logger.warning.assert_called_with(
+            "Timeout waiting for tasks to finish, forcing exit."
         )
 
     def test_can_download(self):
