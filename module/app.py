@@ -170,6 +170,7 @@ class TaskNode:
         self.media_group_ids: dict = {}
         self.media_group_ids_lock: Lock = Lock()
         self.download_status: dict = {}
+        self.download_result_detail: dict = {}
         self.upload_status: dict = {}
         self.upload_stat_dict: dict = {}
         self.failed_download_retry_count: dict = {}

@@ -150,6 +150,131 @@ def _check_timeout(retry: int, _: int):
     return False
 
 
+def _format_size(file_size: int) -> str:
+    """Format file size for concise log output."""
+
+    size = float(file_size or 0)
+    units = ("B", "KB", "MB", "GB", "TB")
+    unit_index = 0
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    if unit_index == 0:
+        return f"{int(size)} {units[unit_index]}"
+    return f"{size:.1f} {units[unit_index]}"
+
+
+def _format_exception_reason(error: Exception) -> str:
+    """Format exception details into a short one-line reason."""
+
+    text = str(error).strip()
+    error_name = type(error).__name__
+    if not text or text == error_name:
+        return error_name
+    return f"{error_name}: {text}"
+
+
+def _get_message_log_meta(
+    message: pyrogram.types.Message,
+) -> Tuple[str, str, int]:
+    """Extract a stable media summary for task logging."""
+
+    media_type = "message"
+    display_name = f"message_{message.id}"
+    file_size = 0
+
+    for current_type in (
+        "audio",
+        "document",
+        "photo",
+        "video",
+        "voice",
+        "animation",
+        "video_note",
+    ):
+        media = getattr(message, current_type, None)
+        if media is None:
+            continue
+        media_type = current_type
+        raw_name = getattr(media, "file_name", None) or f"{current_type}_{message.id}"
+        display_name = os.path.basename(raw_name)
+        file_size = getattr(media, "file_size", 0) or 0
+        break
+
+    if app.hide_file_name:
+        _, ext = os.path.splitext(display_name)
+        display_name = f"****{ext}" if ext else "****"
+
+    return media_type, display_name, file_size
+
+
+def _get_display_file_name(
+    message: pyrogram.types.Message,
+    file_name: Optional[str],
+) -> str:
+    """Normalize the file name displayed in queue/start/finish logs."""
+
+    media_type, fallback_name, _ = _get_message_log_meta(message)
+    if not file_name:
+        return fallback_name
+
+    base_name = os.path.basename(file_name)
+    if app.hide_file_name:
+        _, ext = os.path.splitext(base_name)
+        return f"****{ext}" if ext else "****"
+    if base_name:
+        return base_name
+    return fallback_name or f"{media_type}_{message.id}"
+
+
+def _log_download_task_event(
+    event: str,
+    message: pyrogram.types.Message,
+    node: TaskNode,
+    file_name: Optional[str] = None,
+    file_size: Optional[int] = None,
+    download_status: Optional[DownloadStatus] = None,
+    elapsed_seconds: Optional[float] = None,
+    detail: Optional[str] = None,
+):
+    """Write a concise task lifecycle log line."""
+
+    media_type, default_display_name, default_file_size = _get_message_log_meta(message)
+    display_name = _get_display_file_name(message, file_name) or default_display_name
+    display_size = file_size if file_size is not None else default_file_size
+    attempt = node.failed_download_retry_count.get(message.id, 0) + 1
+
+    parts = [
+        f"{event} Message[{message.id}]",
+        f"chat={node.chat_id}",
+        f"type={media_type}",
+        f"size={_format_size(display_size)}",
+        f"file={display_name}",
+        f"attempt={attempt}",
+    ]
+
+    if download_status is not None:
+        status_name = {
+            DownloadStatus.SuccessDownload: "success",
+            DownloadStatus.FailedDownload: "failed",
+            DownloadStatus.SkipDownload: "skip",
+            DownloadStatus.Downloading: "downloading",
+        }.get(download_status, str(download_status))
+        parts.append(f"status={status_name}")
+
+    if elapsed_seconds is not None:
+        parts.append(f"elapsed={elapsed_seconds:.1f}s")
+
+    if detail:
+        parts.append(f"reason={detail}")
+
+    text = " ".join(parts)
+    if download_status is DownloadStatus.FailedDownload:
+        logger.warning(text)
+    else:
+        logger.info(text)
+
+
 def _can_download(_type: str, file_formats: dict, file_format: Optional[str]) -> bool:
     """
     Check if the given file format can be downloaded.
@@ -298,10 +423,12 @@ async def add_download_task(
     """Add Download task"""
     if message.empty:
         return False
+    node.download_result_detail.pop(message.id, None)
     node.download_status[message.id] = DownloadStatus.Downloading
     await queue.put((message, node))
     if not is_retry:
         node.total_task += 1
+    _log_download_task_event("Queued", message, node)
     return True
 
 
@@ -359,13 +486,14 @@ async def finalize_download_task(
     download_status: DownloadStatus,
     file_name: Optional[str],
     file_size: int = 0,
+    elapsed_seconds: float = 0,
 ):
     """Persist task state and run post-download hooks."""
 
+    result_detail = node.download_result_detail.pop(message.id, None)
     if not node.bot:
         app.set_download_id(node, message.id, download_status)
     node.download_status[message.id] = download_status
-    node.failed_download_retry_count.pop(message.id, None)
 
     try:
         await upload_telegram_chat(
@@ -400,6 +528,17 @@ async def finalize_download_task(
         download_status,
         file_size,
     )
+    _log_download_task_event(
+        "Finished",
+        message,
+        node,
+        file_name=file_name,
+        file_size=file_size,
+        download_status=download_status,
+        elapsed_seconds=elapsed_seconds,
+        detail=result_detail,
+    )
+    node.failed_download_retry_count.pop(message.id, None)
 
 
 def _should_retry_failed_download(
@@ -509,6 +648,7 @@ async def download_media(
     media_size = 0
     _media = None
     message = await fetch_message(client, message)
+    node.download_result_detail.pop(message.id, None)
     try:
         for _type in media_types:
             _media = getattr(message, _type, None)
@@ -527,6 +667,7 @@ async def download_media(
                 if _is_exist(file_name):
                     file_size = os.path.getsize(file_name)
                     if file_size == media_size:
+                        node.download_result_detail[message.id] = "already exists"
                         logger.info(
                             f"id={message.id} {ui_file_name} "
                             f"{_t('already download,download skipped')}.\n"
@@ -534,10 +675,12 @@ async def download_media(
 
                         return DownloadStatus.SkipDownload, None
             else:
+                node.download_result_detail[message.id] = "filtered by file_formats"
                 return DownloadStatus.SkipDownload, None
 
             break
     except Exception as e:
+        node.download_result_detail[message.id] = _format_exception_reason(e)
         logger.error(
             f"Message[{message.id}]: "
             f"{_t('could not be downloaded due to following exception')}:\n[{e}].",
@@ -545,8 +688,10 @@ async def download_media(
         )
         return DownloadStatus.FailedDownload, None
     if _media is None:
+        node.download_result_detail[message.id] = "no matched media"
         return DownloadStatus.SkipDownload, None
 
+    failure_reason = "download failed"
     message_id = message.id
 
     for retry in range(3):
@@ -566,8 +711,10 @@ async def download_media(
                 await asyncio.sleep(0.5)
                 _move_to_download_path(temp_download_path, file_name)
                 # TODO: if not exist file size or media
+                node.download_result_detail.pop(message.id, None)
                 return DownloadStatus.SuccessDownload, file_name
         except DownloadSizeMismatch:
+            failure_reason = "downloaded file size mismatch"
             logger.warning(
                 f"Message[{message.id}]: downloaded file size mismatch, retrying..."
             )
@@ -578,6 +725,7 @@ async def download_media(
                 )
                 break
         except pyrogram.errors.exceptions.bad_request_400.BadRequest:
+            failure_reason = "file reference expired"
             logger.warning(
                 f"Message[{message.id}]: {_t('file reference expired, refetching')}..."
             )
@@ -591,11 +739,13 @@ async def download_media(
                 )
                 break
         except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
+            failure_reason = f"FloodWait: {wait_err.value}s"
             await asyncio.sleep(wait_err.value)
             logger.warning("Message[{}]: FlowWait {}", message.id, wait_err.value)
             if _check_timeout(retry, message.id):
                 break
-        except (TimeoutError, TypeError, ConnectionError, OSError):
+        except (TimeoutError, TypeError, ConnectionError, OSError) as e:
+            failure_reason = _format_exception_reason(e)
             # pylint: disable = C0301
             logger.warning(
                 f"{_t('Timeout Error occurred when downloading Message')}[{message.id}], "
@@ -608,6 +758,7 @@ async def download_media(
                 )
                 break
         except Exception as e:
+            failure_reason = _format_exception_reason(e)
             # pylint: disable = C0301
             logger.error(
                 f"Message[{message.id}]: "
@@ -616,6 +767,7 @@ async def download_media(
             )
             break
 
+    node.download_result_detail[message.id] = failure_reason
     return DownloadStatus.FailedDownload, None
 
 
@@ -647,6 +799,7 @@ async def worker(client: pyrogram.client.Client):
     while app.is_running:
         message = None
         node = None
+        started_at = None
         try:
             item = await queue.get()
             message = item[0]
@@ -657,6 +810,8 @@ async def worker(client: pyrogram.client.Client):
                     app.chat_download_config[node.chat_id].finish_task += 1
                 continue
 
+            _log_download_task_event("Starting", message, node)
+            started_at = time.time()
             download_status = DownloadStatus.FailedDownload
             file_name = None
             file_size = 0
@@ -679,6 +834,7 @@ async def worker(client: pyrogram.client.Client):
                 download_status,
                 file_name,
                 file_size,
+                time.time() - started_at,
             )
         except Exception as e:
             logger.exception(f"{e}")
@@ -688,6 +844,7 @@ async def worker(client: pyrogram.client.Client):
                         message, node, DownloadStatus.FailedDownload
                     ):
                         continue
+                    node.download_result_detail[message.id] = _format_exception_reason(e)
                     node.download_status[message.id] = DownloadStatus.FailedDownload
                     await finalize_download_task(
                         client,
@@ -696,6 +853,7 @@ async def worker(client: pyrogram.client.Client):
                         DownloadStatus.FailedDownload,
                         None,
                         0,
+                        time.time() - started_at if started_at else 0,
                     )
                 except Exception:
                     pass
