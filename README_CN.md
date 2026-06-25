@@ -184,7 +184,7 @@ file_name_prefix:
 - file_name
 file_name_prefix_split: ' - '
 max_download_task: 5
-failed_download_retry_count: 1
+failed_download_retry_count: 0
 failed_download_retry_interval: 30
 web_host: 127.0.0.1
 web_port: 5000
@@ -225,7 +225,7 @@ enable_download_txt: false
   - `caption` - 消息的标题（可能为空）
 - **file_name_prefix_split** - 自定义文件名称分割符号，默认为` - `
 - **max_download_task** - 最大任务下载任务个数，默认为5个。
-- **failed_download_retry_count** - 单个任务在最终失败后，当前运行内额外重试的次数，默认`1`。
+- **failed_download_retry_count** - 单个任务在最终失败后，当前运行内额外重试的次数，默认`0`。
 - **failed_download_retry_interval** - 单个任务在当前运行内重新入队前的等待秒数，默认`30`。
 - **hide_file_name** - 是否隐藏web界面文件名称，默认`false`
 - **web_host** - web界面地址

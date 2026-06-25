@@ -405,7 +405,7 @@ class Application:
         self.debug_web: bool = False
         self.log_level: str = "INFO"
         self.start_timeout: int = 60
-        self.failed_download_retry_count: int = 1
+        self.failed_download_retry_count: int = 0
         self.failed_download_retry_interval: int = 30
         self.allowed_user_ids: yaml.comments.CommentedSeq = yaml.comments.CommentedSeq(
             []

@@ -28,6 +28,7 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(app.proxy, {})
         self.assertEqual(app.restart_program, False)
         self.assertEqual(app.cloud_drive_config.after_upload_file_delete, False)
+        self.assertEqual(app.failed_download_retry_count, 0)
 
         app.chat_download_config[123] = ChatDownloadConfig()
         app.chat_download_config[123].last_read_message_id = 13
