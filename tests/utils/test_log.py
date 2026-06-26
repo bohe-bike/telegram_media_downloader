@@ -23,6 +23,9 @@ class MetaTestCase(unittest.TestCase):
         result = LogFilter().filter(MockLog(funcName="invoke"))
         self.assertEqual(result, False)
 
+        result_send = LogFilter().filter(MockLog(funcName="send"))
+        self.assertEqual(result_send, False)
+
         result1 = LogFilter().filter(MockLog(funcName="get_file"))
         self.assertEqual(result1, True)
 

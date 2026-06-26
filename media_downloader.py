@@ -9,7 +9,6 @@ from typing import List, Optional, Tuple, Union
 import pyrogram
 from loguru import logger
 from pyrogram.types import Audio, Document, Photo, Video, VideoNote, Voice
-from rich.logging import RichHandler
 
 from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.bot import start_download_bot, stop_download_bot
@@ -37,7 +36,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler()],
+    force=True,
 )
 
 CONFIG_NAME = "config.yaml"
@@ -85,8 +84,10 @@ RETRY_TIME_OUT = 3
 
 logging.getLogger("pyrogram.session.session").addFilter(LogFilter())
 logging.getLogger("pyrogram.client").addFilter(LogFilter())
+logging.getLogger("asyncio").addFilter(LogFilter())
 
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.ERROR)
 
 
 def _check_download_finish(media_size: int, download_path: str, ui_file_name: str):
