@@ -197,21 +197,28 @@ def get_download_list():
     items = []
     for chat_id, messages in download_result.items():
         for idx, value in messages.items():
-            is_already_down = value["down_byte"] == value["total_size"]
+            is_finished = (
+                value.get("is_active", value["down_byte"] != value["total_size"])
+                is False
+            )
 
-            if already_down and not is_already_down:
+            if already_down != is_finished:
                 continue
 
             total_size = value["total_size"]
-            progress = round(value["down_byte"] / total_size * 100, 1) if total_size > 0 else 0
-            items.append({
-                "chat": str(chat_id),
-                "id": str(idx),
-                "filename": os.path.basename(value["file_name"]),
-                "total_size": format_byte(total_size),
-                "download_progress": str(progress),
-                "download_speed": format_byte(value["download_speed"]) + "/s",
-                "save_path": value["file_name"].replace("\\", "/"),
-            })
+            progress = (
+                round(value["down_byte"] / total_size * 100, 1) if total_size > 0 else 0
+            )
+            items.append(
+                {
+                    "chat": str(chat_id),
+                    "id": str(idx),
+                    "filename": os.path.basename(value["file_name"]),
+                    "total_size": format_byte(total_size),
+                    "download_progress": str(progress),
+                    "download_speed": format_byte(value["download_speed"]) + "/s",
+                    "save_path": value["file_name"].replace("\\", "/"),
+                }
+            )
 
     return jsonify(items)

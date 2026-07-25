@@ -37,7 +37,7 @@ from module.app import (
     UploadProgressStat,
     UploadStatus,
 )
-from module.download_stat import get_download_result
+from module.download_stat import get_active_download_result
 from module.language import Language, _t
 from module.send_media_group_v2 import cache_media, send_media_group_v2
 from utils.format import (
@@ -51,6 +51,7 @@ from utils.meta_data import MetaData
 _mimetypes = MimeTypes()
 _mimetypes.readfp(StringIO(mime_types))
 _download_cache = Cache(1024 * 1024 * 1024)
+MAX_BOT_STATUS_MESSAGE_LENGTH = 4096
 
 
 def reset_download_cache():
@@ -1054,8 +1055,26 @@ async def report_bot_status(
     """see _report_bot_status"""
     try:
         return await _report_bot_status(client, node, immediate_reply)
+    except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
+        node.next_reply_time = time.time() + wait_err.value
+        logger.warning(
+            "Bot status Message[{}]: FloodWait {}s",
+            node.reply_message_id,
+            wait_err.value,
+        )
     except Exception as e:
-        logger.debug(f"{e}")
+        logger.warning(
+            "Bot status Message[{}] update failed: {}", node.reply_message_id, e
+        )
+
+
+def _truncate_bot_status_message(message: str) -> str:
+    """Keep a Markdown status update within Telegram's text limit."""
+    if len(message) <= MAX_BOT_STATUS_MESSAGE_LENGTH:
+        return message
+
+    suffix = "\n...\n`"
+    return message[: MAX_BOT_STATUS_MESSAGE_LENGTH - len(suffix)] + suffix
 
 
 async def _report_bot_status(
@@ -1075,6 +1094,9 @@ async def _report_bot_status(
         None
     """
     if not node.reply_message_id or not node.bot:
+        return
+
+    if time.time() < node.next_reply_time:
         return
 
     if immediate_reply or node.can_reply():
@@ -1111,33 +1133,28 @@ async def _report_bot_status(
             )
 
         download_result_str = ""
-        download_result = get_download_result()
-        if node.chat_id in download_result:
-            messages = download_result[node.chat_id]
-            for idx, value in messages.items():
-                task_id = value["task_id"]
-                if task_id != node.task_id or value["down_byte"] == value["total_size"]:
-                    continue
-                if value["total_size"] == 0:
-                    continue
+        messages = get_active_download_result(node.chat_id, node.task_id)
+        for idx, value in messages.items():
+            if value["total_size"] == 0:
+                continue
 
-                temp_file_name = truncate_filename(
-                    os.path.basename(value["file_name"]), 10
-                )
-                progress = int(value["down_byte"] / value["total_size"] * 100)
-                download_result_str += (
-                    f" ├─ 🆔 {_t('Message ID')}: {idx}\n"
-                    f" │   ├─ 📁 : {temp_file_name}\n"
-                    f" │   ├─ 📏 : {format_byte(value['total_size'])}\n"
-                    f" │   ├─ ⏬ : {format_byte(value['download_speed'])}/s\n"
-                    f" │   └─ 📊 : [{create_progress_bar(progress)}]"
-                    f" ({progress}%)\n"
-                )
+            temp_file_name = truncate_filename(
+                os.path.basename(value["file_name"]), 10
+            ).replace("`", "'")
+            progress = int(value["down_byte"] / value["total_size"] * 100)
+            download_result_str += (
+                f" ├─ 🆔 {_t('Message ID')}: {idx}\n"
+                f" │   ├─ 📁 : {temp_file_name}\n"
+                f" │   ├─ 📏 : {format_byte(value['total_size'])}\n"
+                f" │   ├─ ⏬ : {format_byte(value['download_speed'])}/s\n"
+                f" │   └─ 📊 : [{create_progress_bar(progress)}]"
+                f" ({progress}%)\n"
+            )
 
-            if download_result_str:
-                download_result_str = (
-                    f"\n📥 {_t('Download Progresses')}:\n" + download_result_str
-                )
+        if download_result_str:
+            download_result_str = (
+                f"\n📥 {_t('Download Progresses')}:\n" + download_result_str
+            )
 
         upload_result_str = ""
         for idx, value in node.upload_stat_dict.items():
@@ -1171,15 +1188,16 @@ async def _report_bot_status(
             f"{upload_result_str}"
             f"{download_result_str}\n`"
         )
+        new_msg_str = _truncate_bot_status_message(new_msg_str)
 
         if new_msg_str != node.last_edit_msg:
-            node.last_edit_msg = new_msg_str
             await client.edit_message_text(
                 node.from_user_id,
                 node.reply_message_id,
                 new_msg_str,
                 parse_mode=pyrogram.enums.ParseMode.MARKDOWN,
             )
+            node.last_edit_msg = new_msg_str
 
 
 def set_max_concurrent_transmissions(

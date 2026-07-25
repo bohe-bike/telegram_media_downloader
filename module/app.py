@@ -155,6 +155,7 @@ class TaskNode:
         self.success_download_task = 0
         self.skip_download_task = 0
         self.last_reply_time = time.time()
+        self.next_reply_time: float = 0
         self.last_edit_msg: str = ""
         self.total_download_byte = 0
         self.forward_msg_detail_str: str = ""
@@ -164,6 +165,7 @@ class TaskNode:
         self.failed_forward_task: int = 0
         self.skip_forward_task: int = 0
         self.is_running: bool = False
+        self.is_collecting_tasks: bool = False
         self.client = None
         self.upload_success_count: int = 0
         self.is_stop_transmission = False
@@ -192,6 +194,7 @@ class TaskNode:
         """If is finish"""
         return self.is_stop_transmission or (
             self.is_running
+            and not self.is_collecting_tasks
             and self.task_type != TaskType.ListenForward
             and self.total_task == self.total_download_task
         )

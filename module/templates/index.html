@@ -72,6 +72,7 @@
       var $ = layui.$;
       var already_download_list_data = new Array()
       var download_list_table_data = new Array()
+      var isUpdatingDownloadList = false
 
       $.ajax({
         url: "get_app_version"
@@ -146,41 +147,39 @@
       });
 
       function update_download_list() {
+        if (isUpdatingDownloadList) {
+          return;
+        }
+        isUpdatingDownloadList = true
         $.ajax({
           url: "get_download_list?already_down=false"
           , type: "get"
-          , async: false
+          , async: true
           , dataType: "json"
           , success: function (result) {
-            // first remove finish and update
-            for (var j = 0, len2 = download_list_table_data.length; j < len2; j++) {
-              find_iter = false
-              for (var i = 0, len = result.length; i < len; i++) {
-                if (result[i].chat == download_list_table_data[j].chat && result[i].id == download_list_table_data[j].id) {
-                  download_list_table_data[j].download_progress = result[i].download_progress
-                  var progress = download_list_table_data[j].download_progress
-                  element.progress('down-' + result[i].chat + '-' + result[i].id, progress + '%');
-
-                  var download_speed_obj = $('div[lay-filter="down_speed-' + result[i].chat + '-' + result[i].id + '"]')
-                  download_speed_obj.html(result[i].download_speed)
-
-                  if (progress == 100) {
-                    var device_obj = $('div[lay-filter="down-' + result[i].chat + '-' + result[i].id + '"] div')
-                    device_obj.removeClass("layui-bg-blue")
-                    device_obj.addClass("layui-bg-green")
-                    obj = $('div[lay-id="download_list"]  tr[data-index="' + result[i].chat + '-' + result[i].id + '"]')
-                    obj.remove()
-                  }
-                  find_iter = true
-                  break
-                }
-              }
-
+            var resultByKey = {}
+            for (var i = 0, len = result.length; i < len; i++) {
+              resultByKey[result[i].chat + '-' + result[i].id] = result[i]
             }
 
-            // new task
+            for (var j = download_list_table_data.length - 1; j >= 0; j--) {
+              var item = download_list_table_data[j]
+              var key = item.chat + '-' + item.id
+              var latest = resultByKey[key]
+              if (!latest) {
+                $('div[lay-id="download_list"] tr[data-index="' + key + '"]').remove()
+                download_list_table_data.splice(j, 1)
+                continue
+              }
+
+              item.download_progress = latest.download_progress
+              var progress = item.download_progress
+              element.progress('down-' + latest.chat + '-' + latest.id, progress + '%')
+              $('div[lay-filter="down_speed-' + latest.chat + '-' + latest.id + '"]').html(latest.download_speed)
+            }
+
             for (var i = 0, len = result.length; i < len; i++) {
-              find_iter = false
+              var find_iter = false
               for (var j = 0, len2 = download_list_table_data.length; j < len2; j++) {
                 if (result[i].chat == download_list_table_data[j].chat && result[i].id == download_list_table_data[j].id) {
                   find_iter = true
@@ -188,7 +187,7 @@
                 }
               }
 
-              if (find_iter || result[i].download_progress == 100) {
+              if (find_iter) {
                 continue;
               }
               // not found
@@ -214,6 +213,9 @@
 
             element.render()
           }
+          , complete: function () {
+            isUpdatingDownloadList = false
+          }
         });
 
       };
@@ -223,7 +225,7 @@
         $.ajax({
           url: "get_download_status"
           , type: "get"
-          , async: false
+          , async: true
           , dataType: "json"
           , success: function (result) {
             $("#download_speed_title").html(result.download_speed)
@@ -254,7 +256,7 @@
               find_iter = false
 
               for (var j = 0, len2 = already_download_list_data.length; j < len2; j++) {
-                if (result[i].chat == download_list_table_data[i].chat && result[i].id == already_download_list_data[j].id) {
+                if (result[i].chat == already_download_list_data[j].chat && result[i].id == already_download_list_data[j].id) {
                   find_iter = true
                   break
                 }

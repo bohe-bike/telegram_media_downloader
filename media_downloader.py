@@ -12,7 +12,7 @@ from pyrogram.types import Audio, Document, Photo, Video, VideoNote, Voice
 
 from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.bot import start_download_bot, stop_download_bot
-from module.download_stat import update_download_status
+from module.download_stat import finish_download_status, update_download_status
 from module.get_chat_history_v2 import get_chat_history_v2
 from module.language import _t
 from module.pyrogram_extension import (
@@ -495,6 +495,11 @@ async def finalize_download_task(
     if not node.bot:
         app.set_download_id(node, message.id, download_status)
     node.download_status[message.id] = download_status
+    finish_download_status(
+        node.chat_id,
+        message.id,
+        download_status is DownloadStatus.SuccessDownload,
+    )
 
     try:
         await upload_telegram_chat(
@@ -866,62 +871,65 @@ async def download_chat_task(
     node: TaskNode,
 ):
     """Download all task"""
-    messages_iter = get_chat_history_v2(
-        client,
-        node.chat_id,
-        limit=node.limit,
-        max_id=node.end_offset_id,
-        offset_id=chat_download_config.last_read_message_id,
-        reverse=True,
-    )
-
+    node.is_running = True
+    node.is_collecting_tasks = True
     chat_download_config.node = node
 
-    if chat_download_config.ids_to_retry:
-        logger.info(f"{_t('Downloading files failed during last run')}...")
-        skipped_messages: list = await client.get_messages(  # type: ignore
-            chat_id=node.chat_id, message_ids=chat_download_config.ids_to_retry
+    try:
+        messages_iter = get_chat_history_v2(
+            client,
+            node.chat_id,
+            limit=node.limit,
+            max_id=node.end_offset_id,
+            offset_id=chat_download_config.last_read_message_id,
+            reverse=True,
         )
 
-        for message in skipped_messages:
-            if message is None or message.empty:
-                continue
-            await add_download_task(message, node)
-
-    async for message in messages_iter:  # type: ignore
-        meta_data = MetaData()
-
-        caption = message.caption
-        if caption:
-            caption = validate_title(caption)
-            app.set_caption_name(node.chat_id, message.media_group_id, caption)
-            app.set_caption_entities(
-                node.chat_id, message.media_group_id, message.caption_entities
+        if chat_download_config.ids_to_retry:
+            logger.info(f"{_t('Downloading files failed during last run')}...")
+            skipped_messages: list = await client.get_messages(  # type: ignore
+                chat_id=node.chat_id, message_ids=chat_download_config.ids_to_retry
             )
-        else:
-            caption = app.get_caption_name(node.chat_id, message.media_group_id)
-        set_meta_data(meta_data, message, caption)
 
-        if app.need_skip_message(chat_download_config, message.id):
-            continue
+            for message in skipped_messages:
+                if message is None or message.empty:
+                    continue
+                await add_download_task(message, node)
 
-        if app.exec_filter(chat_download_config, meta_data):
-            await add_download_task(message, node)
-        else:
-            node.download_status[message.id] = DownloadStatus.SkipDownload
-            if message.media_group_id:
-                await upload_telegram_chat(
-                    client,
-                    node.upload_user,
-                    app,
-                    node,
-                    message,
-                    DownloadStatus.SkipDownload,
+        async for message in messages_iter:  # type: ignore
+            meta_data = MetaData()
+
+            caption = message.caption
+            if caption:
+                caption = validate_title(caption)
+                app.set_caption_name(node.chat_id, message.media_group_id, caption)
+                app.set_caption_entities(
+                    node.chat_id, message.media_group_id, message.caption_entities
                 )
+            else:
+                caption = app.get_caption_name(node.chat_id, message.media_group_id)
+            set_meta_data(meta_data, message, caption)
 
-    chat_download_config.need_check = True
-    chat_download_config.total_task = node.total_task
-    node.is_running = True
+            if app.need_skip_message(chat_download_config, message.id):
+                continue
+
+            if app.exec_filter(chat_download_config, meta_data):
+                await add_download_task(message, node)
+            else:
+                node.download_status[message.id] = DownloadStatus.SkipDownload
+                if message.media_group_id:
+                    await upload_telegram_chat(
+                        client,
+                        node.upload_user,
+                        app,
+                        node,
+                        message,
+                        DownloadStatus.SkipDownload,
+                    )
+    finally:
+        chat_download_config.need_check = True
+        chat_download_config.total_task = node.total_task
+        node.is_collecting_tasks = False
 
 
 async def download_all_chat(client: pyrogram.Client):
