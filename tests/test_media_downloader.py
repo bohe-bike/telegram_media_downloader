@@ -14,6 +14,7 @@ import pyrogram
 from media_downloader import (
     _can_download,
     _check_config,
+    _fetch_message_with_retry,
     _get_media_meta,
     _is_exist,
     _schedule_failed_download_retry,
@@ -928,6 +929,110 @@ class MediaDownloaderTestCase(unittest.TestCase):
         )
 
         self.assertEqual((DownloadStatus.FailedDownload, None), result)
+
+    @mock.patch("media_downloader.asyncio.sleep", return_value=None)
+    def test_fetch_message_retries_transient_failures(self, _):
+        attempts = []
+        message = MockMessage(id=17, media=True)
+
+        async def transient_fetch(_, __):
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise ConnectionError("temporary API failure")
+            return message
+
+        with mock.patch("media_downloader.fetch_message", new=transient_fetch):
+            result = self.loop.run_until_complete(
+                _fetch_message_with_retry(MockClient(), message)
+            )
+
+        self.assertIs(result, message)
+        self.assertEqual(len(attempts), 3)
+
+    @mock.patch("media_downloader.app.save_path", new=MOCK_DIR)
+    @mock.patch("media_downloader.asyncio.sleep", return_value=None)
+    @mock.patch("media_downloader._is_exist", return_value=False)
+    @mock.patch(
+        "media_downloader._move_to_download_path", new=mock_move_to_download_path
+    )
+    @mock.patch(
+        "media_downloader._check_download_finish", new=mock_check_download_finish
+    )
+    def test_download_media_retries_transient_exception(
+        self, _, __
+    ):
+        class TransientDownloadClient(MockClient):
+            def __init__(self):
+                self.attempts = 0
+
+            async def download_media(self, *args, **kwargs):
+                self.attempts += 1
+                if self.attempts < 3:
+                    raise pyrogram.errors.InternalServerError
+                return kwargs["file_name"]
+
+        reset_download_cache()
+        rest_app(MOCK_CONF)
+        client = TransientDownloadClient()
+        message = MockMessage(
+            id=18,
+            media=True,
+            video=MockVideo(
+                file_name="sample_video.mov",
+                mime_type="video/mov",
+            ),
+        )
+
+        result = self.loop.run_until_complete(
+            async_download_media(client, message, ["video"], {"video": ["all"]})
+        )
+
+        self.assertEqual(DownloadStatus.SuccessDownload, result[0])
+        self.assertEqual(client.attempts, 3)
+
+    def test_record_download_status_resets_cache_after_exception(self):
+        reset_download_cache()
+        message = MockMessage(id=19, media=True)
+        node = TaskNode(chat_id=-123)
+
+        @record_download_status
+        async def raise_error(*_):
+            raise RuntimeError("unexpected download error")
+
+        @record_download_status
+        async def succeed(*_):
+            return DownloadStatus.SuccessDownload, "downloaded-file"
+
+        with self.assertRaisesRegex(RuntimeError, "unexpected download error"):
+            self.loop.run_until_complete(
+                raise_error(MockClient(), message, [], {}, node)
+            )
+
+        result = self.loop.run_until_complete(
+            succeed(MockClient(), message, [], {}, node)
+        )
+        self.assertEqual(result, (DownloadStatus.SuccessDownload, "downloaded-file"))
+
+    def test_worker_skips_active_duplicate_queue_item(self):
+        rest_app(MOCK_CONF)
+        message = MockMessage(id=20, media=True)
+        node = TaskNode(chat_id=-123)
+
+        async def duplicate_download_task(*_):
+            app.is_running = False
+            return DownloadStatus.Downloading, None, 0
+
+        async def unexpected_finalize(*_):
+            self.fail("a duplicate queue item must not be finalized")
+
+        with mock.patch("media_downloader.queue", new=MyQueue([(message, node)])):
+            with mock.patch(
+                "media_downloader.download_task", new=duplicate_download_task
+            ):
+                with mock.patch(
+                    "media_downloader.finalize_download_task", new=unexpected_finalize
+                ):
+                    self.loop.run_until_complete(worker(MockClient()))
 
     @mock.patch("media_downloader.HookClient", new=MockClient)
     @mock.patch("media_downloader.asyncio.Queue.put")

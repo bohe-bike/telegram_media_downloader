@@ -22,3 +22,7 @@ media_types:
 - video_note
 # in linux please use /
 # save_path: E:\github\telegram_media_downloader
+
+# Retry a failed task after all local download attempts have been exhausted.
+failed_download_retry_count: 2
+failed_download_retry_interval: 30

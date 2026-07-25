@@ -81,6 +81,7 @@ async def _download_media_with_timeout(
 
 queue: asyncio.Queue = asyncio.Queue()
 RETRY_TIME_OUT = 3
+MAX_DOWNLOAD_ATTEMPTS = 3
 
 logging.getLogger("pyrogram.session.session").addFilter(LogFilter())
 logging.getLogger("pyrogram.client").addFilter(LogFilter())
@@ -135,7 +136,7 @@ def _move_to_download_path(temp_download_path: str, download_path: str):
 
 
 def _check_timeout(retry: int, _: int):
-    """Check if message download timeout, then add message id into failed_ids
+    """Return whether the current download attempt is the last one.
 
     Parameters
     ----------
@@ -146,9 +147,57 @@ def _check_timeout(retry: int, _: int):
         Try to download message 's id
 
     """
-    if retry == 2:
-        return True
-    return False
+    return retry >= MAX_DOWNLOAD_ATTEMPTS - 1
+
+
+def _retry_delay(retry: int) -> int:
+    """Return the exponential backoff delay before the next local retry."""
+
+    return RETRY_TIME_OUT * (2**retry)
+
+
+async def _fetch_message_with_retry(
+    client: pyrogram.client.Client,
+    message: pyrogram.types.Message,
+) -> pyrogram.types.Message:
+    """Refresh a message, retrying transient Telegram and network failures."""
+
+    last_error: Optional[Exception] = None
+    for retry in range(MAX_DOWNLOAD_ATTEMPTS):
+        try:
+            refreshed_message = await fetch_message(client, message)
+            if not refreshed_message or getattr(refreshed_message, "empty", False):
+                raise LookupError("message is unavailable")
+            return refreshed_message
+        except (pyrogram.errors.Unauthorized, pyrogram.errors.Forbidden):
+            raise
+        except pyrogram.errors.FloodWait as wait_err:
+            last_error = wait_err
+            if _check_timeout(retry, message.id):
+                break
+            wait_seconds = max(wait_err.value, 0)
+            logger.warning(
+                "Message[{}]: FloodWait {} while refreshing, retrying.",
+                message.id,
+                wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)
+        except Exception as error:
+            last_error = error
+            if _check_timeout(retry, message.id):
+                break
+            wait_seconds = _retry_delay(retry)
+            logger.warning(
+                "Message[{}]: refresh failed ({}), retrying in {} seconds.",
+                message.id,
+                _format_exception_reason(error),
+                wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("message refresh failed")
 
 
 def _format_size(file_size: int) -> str:
@@ -617,8 +666,9 @@ async def download_media(
     """
     Download media from Telegram.
 
-    Each of the files to download are retried 3 times with a
-    delay of 5 seconds each.
+    Each media transfer is attempted up to three times with
+    exponential backoff. A task that still fails can be requeued
+    according to the failed-download retry settings.
 
     Parameters
     ----------
@@ -653,7 +703,18 @@ async def download_media(
     task_start_time: float = time.time()
     media_size = 0
     _media = None
-    message = await fetch_message(client, message)
+    original_message_id = message.id
+    try:
+        message = await _fetch_message_with_retry(client, message)
+    except Exception as error:
+        node.download_result_detail[original_message_id] = _format_exception_reason(error)
+        logger.error(
+            "Message[{}]: could not refresh before download: {}",
+            original_message_id,
+            _format_exception_reason(error),
+        )
+        return DownloadStatus.FailedDownload, None
+
     node.download_result_detail.pop(message.id, None)
     try:
         for _type in media_types:
@@ -700,7 +761,7 @@ async def download_media(
     failure_reason = "download failed"
     message_id = message.id
 
-    for retry in range(3):
+    for retry in range(MAX_DOWNLOAD_ATTEMPTS):
         try:
             temp_download_path = await _download_media_with_timeout(
                 client,
@@ -719,24 +780,38 @@ async def download_media(
                 # TODO: if not exist file size or media
                 node.download_result_detail.pop(message.id, None)
                 return DownloadStatus.SuccessDownload, file_name
+            failure_reason = "download did not return a file path"
+            if _check_timeout(retry, message.id):
+                logger.error(
+                    "Message[{}]: download returned no file path after {} attempts.",
+                    message.id,
+                    MAX_DOWNLOAD_ATTEMPTS,
+                )
+                break
+            wait_seconds = _retry_delay(retry)
+            logger.warning(
+                "Message[{}]: download returned no file path, retrying in {} seconds.",
+                message.id,
+                wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)
         except DownloadSizeMismatch:
             failure_reason = "downloaded file size mismatch"
             logger.warning(
                 f"Message[{message.id}]: downloaded file size mismatch, retrying..."
             )
-            await asyncio.sleep(RETRY_TIME_OUT)
             if _check_timeout(retry, message.id):
                 logger.error(
-                    f"Message[{message.id}]: size mismatch after 3 retries, download skipped."
+                    f"Message[{message.id}]: size mismatch after "
+                    f"{MAX_DOWNLOAD_ATTEMPTS} attempts, download skipped."
                 )
                 break
+            await asyncio.sleep(_retry_delay(retry))
         except pyrogram.errors.exceptions.bad_request_400.BadRequest:
             failure_reason = "file reference expired"
             logger.warning(
                 f"Message[{message.id}]: {_t('file reference expired, refetching')}..."
             )
-            await asyncio.sleep(RETRY_TIME_OUT)
-            message = await fetch_message(client, message)
             if _check_timeout(retry, message.id):
                 # pylint: disable = C0301
                 logger.error(
@@ -744,34 +819,62 @@ async def download_media(
                     f"{_t('file reference expired for 3 retries, download skipped.')}"
                 )
                 break
+            await asyncio.sleep(_retry_delay(retry))
+            try:
+                message = await _fetch_message_with_retry(client, message)
+            except Exception as error:
+                failure_reason = _format_exception_reason(error)
+                logger.error(
+                    "Message[{}]: could not refresh expired file reference: {}",
+                    message.id,
+                    failure_reason,
+                )
+                break
         except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
             failure_reason = f"FloodWait: {wait_err.value}s"
-            await asyncio.sleep(wait_err.value)
             logger.warning("Message[{}]: FlowWait {}", message.id, wait_err.value)
             if _check_timeout(retry, message.id):
                 break
+            await asyncio.sleep(max(wait_err.value, 0))
         except (TimeoutError, TypeError, ConnectionError, OSError) as e:
             failure_reason = _format_exception_reason(e)
-            # pylint: disable = C0301
-            logger.warning(
-                f"{_t('Timeout Error occurred when downloading Message')}[{message.id}], "
-                f"{_t('retrying after')} {RETRY_TIME_OUT} {_t('seconds')}"
-            )
-            await asyncio.sleep(RETRY_TIME_OUT)
             if _check_timeout(retry, message.id):
                 logger.error(
                     f"Message[{message.id}]: {_t('Timing out after 3 reties, download skipped.')}"
                 )
                 break
-        except Exception as e:
-            failure_reason = _format_exception_reason(e)
+            wait_seconds = _retry_delay(retry)
             # pylint: disable = C0301
+            logger.warning(
+                f"{_t('Timeout Error occurred when downloading Message')}[{message.id}], "
+                f"{_t('retrying after')} {wait_seconds} {_t('seconds')}"
+            )
+            await asyncio.sleep(wait_seconds)
+        except (pyrogram.errors.Unauthorized, pyrogram.errors.Forbidden) as error:
+            failure_reason = _format_exception_reason(error)
             logger.error(
-                f"Message[{message.id}]: "
-                f"{_t('could not be downloaded due to following exception')}:\n[{e}].",
-                exc_info=True,
+                "Message[{}]: download is not authorized: {}",
+                message.id,
+                failure_reason,
             )
             break
+        except Exception as e:
+            failure_reason = _format_exception_reason(e)
+            if _check_timeout(retry, message.id):
+                # pylint: disable = C0301
+                logger.exception(
+                    f"Message[{message.id}]: "
+                    f"{_t('could not be downloaded due to following exception')}:\n[{e}]."
+                )
+                break
+            wait_seconds = _retry_delay(retry)
+            logger.warning(
+                "Message[{}]: download failed ({}), retrying in {} seconds.",
+                message.id,
+                failure_reason,
+                wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)
 
     node.download_result_detail[message.id] = failure_reason
     return DownloadStatus.FailedDownload, None
@@ -829,6 +932,13 @@ async def worker(client: pyrogram.client.Client):
                 download_status, file_name, file_size = await download_task(
                     client, message, node
                 )
+
+            if download_status is DownloadStatus.Downloading:
+                logger.info(
+                    "Message[{}]: already downloading, skipping duplicate queue entry.",
+                    message.id,
+                )
+                continue
 
             if _schedule_failed_download_retry(message, node, download_status):
                 continue

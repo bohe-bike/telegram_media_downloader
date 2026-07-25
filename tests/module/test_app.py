@@ -28,7 +28,7 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(app.proxy, {})
         self.assertEqual(app.restart_program, False)
         self.assertEqual(app.cloud_drive_config.after_upload_file_delete, False)
-        self.assertEqual(app.failed_download_retry_count, 0)
+        self.assertEqual(app.failed_download_retry_count, 2)
         self.assertEqual(app.download_media_timeout, 0)
         self.assertEqual(app.run_until_all_task_finish_timeout, 3600)
 

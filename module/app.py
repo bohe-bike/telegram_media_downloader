@@ -411,7 +411,7 @@ class Application:
         self.start_timeout: int = 60
         self.download_media_timeout: int = 0
         self.run_until_all_task_finish_timeout: int = 3600
-        self.failed_download_retry_count: int = 0
+        self.failed_download_retry_count: int = 2
         self.failed_download_retry_interval: int = 30
         self.allowed_user_ids: yaml.comments.CommentedSeq = yaml.comments.CommentedSeq(
             []
