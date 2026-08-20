@@ -161,6 +161,40 @@ def get_download_speed():
     )
 
 
+@_flask_app.route("/get_download_summary")
+@login_required
+def get_download_summary():
+    """Return compact lifecycle counters for the web dashboard."""
+    summary = {
+        "total": 0,
+        "queued": 0,
+        "retrying": 0,
+        "downloading": 0,
+        "success": 0,
+        "failed": 0,
+        "skipped": 0,
+    }
+    for messages in get_download_result().values():
+        for value in messages.values():
+            is_active = value.get(
+                "is_active", value["down_byte"] != value["total_size"]
+            )
+            default_state = (
+                "downloading"
+                if is_active
+                else (
+                    "success"
+                    if value["down_byte"] == value["total_size"]
+                    else "failed"
+                )
+            )
+            state = value.get("state", default_state)
+            summary["total"] += 1
+            summary[state if state in summary else default_state] += 1
+
+    return jsonify(summary)
+
+
 @_flask_app.route("/set_download_state", methods=["POST"])
 @login_required
 def web_set_download_state():
@@ -225,7 +259,9 @@ def get_download_list():
                     "reason": value.get("reason", ""),
                     "attempt": value.get("attempt", 1),
                     "retry_count": value.get("retry_count", 0),
+                    "updated_at": value.get("updated_at", value.get("end_time", 0)),
                 }
             )
 
+    items.sort(key=lambda item: item["updated_at"], reverse=True)
     return jsonify(items)

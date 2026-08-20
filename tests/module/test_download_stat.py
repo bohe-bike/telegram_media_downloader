@@ -139,6 +139,31 @@ class DownloadStatTestCase(unittest.TestCase):
         self.assertEqual(1, item["retry_count"])
         self.assertEqual("TimeoutError: request timed out", item["reason"])
 
+    def test_web_summary_groups_lifecycle_states(self):
+        node = TaskNode(chat_id=101, task_id=7)
+        download_stat.set_download_task_status(101, 1, node, "queued")
+        download_stat.mark_download_retrying(101, 2, node, 1)
+        download_stat.finish_download_status(
+            101, 3, True, state="success", node=node
+        )
+        download_stat.finish_download_status(
+            101, 4, False, state="failed", node=node
+        )
+
+        flask_app = get_flask_app()
+        original_login_disabled = flask_app.config.get("LOGIN_DISABLED")
+        flask_app.config["LOGIN_DISABLED"] = True
+        try:
+            with flask_app.test_client() as client:
+                summary = client.get("/get_download_summary").get_json()
+                self.assertEqual(4, summary["total"])
+                self.assertEqual(1, summary["queued"])
+                self.assertEqual(1, summary["retrying"])
+                self.assertEqual(1, summary["success"])
+                self.assertEqual(1, summary["failed"])
+        finally:
+            flask_app.config["LOGIN_DISABLED"] = original_login_disabled
+
     def test_bot_status_retries_after_an_edit_error(self):
         node = TaskNode(
             chat_id=101,
