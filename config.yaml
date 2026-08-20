@@ -26,3 +26,7 @@ media_types:
 # Retry a failed task after all local download attempts have been exhausted.
 failed_download_retry_count: 2
 failed_download_retry_interval: 30
+# Abort a single stalled transfer and let the retry policy handle it.
+download_media_timeout: 3600
+# Keep bot mode alive until all queued work has finished.
+run_until_all_task_finish_timeout: 0

@@ -374,6 +374,22 @@ def _is_exist(file_path: str) -> bool:
     return not os.path.isdir(file_path) and os.path.exists(file_path)
 
 
+def _cleanup_temp_download(temp_download_path: Optional[str]):
+    """Remove a partial transfer before the next retry."""
+    if not temp_download_path:
+        return
+    try:
+        if not _is_exist(temp_download_path):
+            return
+        os.remove(temp_download_path)
+    except Exception as error:
+        logger.warning(
+            "Could not remove partial download {}: {}",
+            temp_download_path,
+            _format_exception_reason(error),
+        )
+
+
 # pylint: disable = R0912
 
 
@@ -635,6 +651,17 @@ async def finalize_download_task(
         elapsed_seconds=elapsed_seconds,
         detail=result_detail,
     )
+    if node.chat_id in app.chat_download_config:
+        try:
+            # Persist after every terminal transition so a later crash does
+            # not lose the last completed/failure checkpoint.
+            app.update_config()
+        except Exception as error:
+            logger.warning(
+                "Message[{}]: checkpoint update failed: {}",
+                message.id,
+                _format_exception_reason(error),
+            )
     node.failed_download_retry_count.pop(message.id, None)
 
 
@@ -858,6 +885,7 @@ async def download_media(
             await asyncio.sleep(_retry_delay(retry))
         except pyrogram.errors.exceptions.bad_request_400.BadRequest:
             failure_reason = "file reference expired"
+            _cleanup_temp_download(temp_file_name)
             logger.warning(
                 f"Message[{message.id}]: {_t('file reference expired, refetching')}..."
             )
@@ -881,12 +909,14 @@ async def download_media(
                 break
         except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
             failure_reason = f"FloodWait: {wait_err.value}s"
+            _cleanup_temp_download(temp_file_name)
             logger.warning("Message[{}]: FlowWait {}", message.id, wait_err.value)
             if _check_timeout(retry, message.id):
                 break
             await asyncio.sleep(max(wait_err.value, 0))
         except (TimeoutError, TypeError, ConnectionError, OSError) as e:
             failure_reason = _format_exception_reason(e)
+            _cleanup_temp_download(temp_file_name)
             if _check_timeout(retry, message.id):
                 logger.error(
                     f"Message[{message.id}]: {_t('Timing out after 3 reties, download skipped.')}"
@@ -901,6 +931,7 @@ async def download_media(
             await asyncio.sleep(wait_seconds)
         except (pyrogram.errors.Unauthorized, pyrogram.errors.Forbidden) as error:
             failure_reason = _format_exception_reason(error)
+            _cleanup_temp_download(temp_file_name)
             logger.error(
                 "Message[{}]: download is not authorized: {}",
                 message.id,
@@ -909,6 +940,7 @@ async def download_media(
             break
         except Exception as e:
             failure_reason = _format_exception_reason(e)
+            _cleanup_temp_download(temp_file_name)
             if _check_timeout(retry, message.id):
                 # pylint: disable = C0301
                 logger.exception(
