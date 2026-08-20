@@ -173,6 +173,10 @@ class TaskNode:
         self.media_group_ids_lock: Lock = Lock()
         self.download_status: dict = {}
         self.download_result_detail: dict = {}
+        # Keep a small, human-readable terminal history for bot status reports.
+        # Unlike ``download_result_detail`` this is not cleared when a task is
+        # requeued after a transient failure.
+        self.download_history: dict = {}
         self.upload_status: dict = {}
         self.upload_stat_dict: dict = {}
         self.failed_download_retry_count: dict = {}

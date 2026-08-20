@@ -12,7 +12,12 @@ from pyrogram.types import Audio, Document, Photo, Video, VideoNote, Voice
 
 from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.bot import start_download_bot, stop_download_bot
-from module.download_stat import finish_download_status, update_download_status
+from module.download_stat import (
+    finish_download_status,
+    mark_download_retrying,
+    set_download_task_status,
+    update_download_status,
+)
 from module.get_chat_history_v2 import get_chat_history_v2
 from module.language import _t
 from module.pyrogram_extension import (
@@ -475,6 +480,19 @@ async def add_download_task(
         return False
     node.download_result_detail.pop(message.id, None)
     node.download_status[message.id] = DownloadStatus.Downloading
+    _, display_name, expected_size = _get_message_log_meta(message)
+    retry_count = node.failed_download_retry_count.get(message.id, 0)
+    set_download_task_status(
+        node.chat_id,
+        message.id,
+        node,
+        "retrying" if is_retry else "queued",
+        file_name=display_name,
+        total_size=expected_size,
+        attempt=retry_count + 1,
+        retry_count=retry_count,
+        is_active=True,
+    )
     await queue.put((message, node))
     if not is_retry:
         node.total_task += 1
@@ -541,6 +559,23 @@ async def finalize_download_task(
     """Persist task state and run post-download hooks."""
 
     result_detail = node.download_result_detail.pop(message.id, None)
+    status_name = {
+        DownloadStatus.SuccessDownload: "success",
+        DownloadStatus.FailedDownload: "failed",
+        DownloadStatus.SkipDownload: "skipped",
+    }.get(download_status, "failed")
+    _, display_name, expected_size = _get_message_log_meta(message)
+    result_file_name = file_name or display_name
+    retry_count = node.failed_download_retry_count.get(message.id, 0)
+    node.download_history[message.id] = {
+        "status": status_name,
+        "file_name": _get_display_file_name(message, result_file_name),
+        "reason": result_detail or "",
+        "attempt": retry_count + 1,
+        "retry_count": retry_count,
+    }
+    while len(node.download_history) > 100:
+        node.download_history.pop(next(iter(node.download_history)))
     if not node.bot:
         app.set_download_id(node, message.id, download_status)
     node.download_status[message.id] = download_status
@@ -548,6 +583,13 @@ async def finalize_download_task(
         node.chat_id,
         message.id,
         download_status is DownloadStatus.SuccessDownload,
+        state=status_name,
+        reason=result_detail or "",
+        file_name=result_file_name,
+        total_size=file_size or expected_size,
+        node=node,
+        attempt=retry_count + 1,
+        retry_count=retry_count,
     )
 
     try:
@@ -648,6 +690,13 @@ def _schedule_failed_download_retry(
 
     retry_index = node.failed_download_retry_count.get(message.id, 0) + 1
     node.failed_download_retry_count[message.id] = retry_index
+    mark_download_retrying(
+        node.chat_id,
+        message.id,
+        node,
+        retry_index,
+        node.download_result_detail.get(message.id, "download failed"),
+    )
     app.loop.create_task(_retry_failed_download_later(message, node, retry_index))
     return True
 

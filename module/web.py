@@ -209,6 +209,9 @@ def get_download_list():
             progress = (
                 round(value["down_byte"] / total_size * 100, 1) if total_size > 0 else 0
             )
+            state = value.get(
+                "state", "success" if is_finished and progress == 100 else "downloading"
+            )
             items.append(
                 {
                     "chat": str(chat_id),
@@ -218,6 +221,10 @@ def get_download_list():
                     "download_progress": str(progress),
                     "download_speed": format_byte(value["download_speed"]) + "/s",
                     "save_path": value["file_name"].replace("\\", "/"),
+                    "status": state,
+                    "reason": value.get("reason", ""),
+                    "attempt": value.get("attempt", 1),
+                    "retry_count": value.get("retry_count", 0),
                 }
             )
 

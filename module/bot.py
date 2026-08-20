@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import time
 from datetime import datetime
 from typing import Callable, List, Union
 
@@ -106,6 +107,10 @@ class DownloadBot:
 
             for key, value in self.task_node.copy().items():
                 if value.is_running and value.is_finish():
+                    # A FloodWait can defer the final status edit.  Keep the
+                    # task alive until that edit has had a chance to run.
+                    if value.next_reply_time > time.time():
+                        continue
                     self.remove_task_node(key)
             await asyncio.sleep(3)
 

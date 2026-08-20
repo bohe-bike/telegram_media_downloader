@@ -1030,7 +1030,9 @@ async def report_bot_download_status(
     """
     node.stat(download_status)
     node.total_download_byte += download_size
-    await report_bot_status(client, node)
+    # A terminal transition is the one status users most need to see.  Do not
+    # let the normal one-second progress refresh throttle suppress it.
+    await report_bot_status(client, node, immediate_reply=True)
 
 
 async def report_bot_forward_status(
@@ -1162,6 +1164,39 @@ async def _report_bot_status(
                 f"\n📥 {_t('Download Progresses')}:\n" + download_result_str
             )
 
+        retry_result_str = ""
+        retrying_messages = get_active_download_result(node.chat_id, node.task_id)
+        for idx, value in retrying_messages.items():
+            if value.get("state") != "retrying":
+                continue
+            retry_result_str += (
+                f" ├─ 🆔 {_t('Message ID')}: {idx}"
+                f" (retry {value.get('retry_count', 0)})\n"
+            )
+        if retry_result_str:
+            retry_result_str = f"\n🔁 Retrying:\n" + retry_result_str
+
+        failed_result_str = ""
+        failed_history = [
+            (idx, value)
+            for idx, value in node.download_history.items()
+            if value.get("status") == "failed"
+        ][-5:]
+        for idx, value in failed_history:
+            file_name = truncate_filename(value.get("file_name", ""), 20).replace(
+                "`", "'"
+            )
+            reason = truncate_filename(value.get("reason", "unknown"), 60).replace(
+                "`", "'"
+            )
+            failed_result_str += (
+                f" ├─ 🆔 {_t('Message ID')}: {idx} | {file_name}"
+                f" (run {value.get('attempt', 1)})\n"
+                f" │   └─ {reason}\n"
+            )
+        if failed_result_str:
+            failed_result_str = f"\n❌ Failed details:\n" + failed_result_str
+
         upload_result_str = ""
         for idx, value in node.upload_stat_dict.items():
             if value.total_size == value.upload_size or value.total_size == 0:
@@ -1192,6 +1227,8 @@ async def _report_bot_status(
             f"{node.forward_msg_detail_str}"
             f"{upload_msg_detail_str}"
             f"{upload_result_str}"
+            f"{retry_result_str}"
+            f"{failed_result_str}"
             f"{download_result_str}\n`"
         )
         new_msg_str = _truncate_bot_status_message(new_msg_str)

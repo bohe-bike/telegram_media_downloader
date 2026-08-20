@@ -19,7 +19,7 @@
     <div class="header-title layui-tab-brief">
       <ul class="layui-tab-title">
         <li class="layui-this">Downloading</li>
-        <li>Downloaded</li>
+        <li>Completed / Failed</li>
         <!-- <li>Config</li> -->
       </ul>
       <div class="stop-btn" id="download_state" data-value="{{ download_state }}" onclick="download_state_change(this)"> {{ download_state }} </div>
@@ -140,6 +140,9 @@
           { field: 'id', title: 'id', width: 100 }
           , { field: 'filename', title: 'file name', align: 'center' }
           , { field: 'total_size', title: 'total size', align: 'center' }
+          , { field: 'status', title: 'status', align: 'center' }
+          , { field: 'attempt', title: 'attempt', align: 'center' }
+          , { field: 'reason', title: 'reason', align: 'center' }
           , { field: 'save_path', title: 'save path', align: 'center' }
         ]], done: function (res, currentCount) {
           element.render()
@@ -249,10 +252,6 @@
           , success: function (result) {
             // if not exist then add
             for (var i = 0, len = result.length; i < len; i++) {
-              if (result[i].download_progress != 100) {
-                continue
-              }
-
               find_iter = false
 
               for (var j = 0, len2 = already_download_list_data.length; j < len2; j++) {
@@ -271,7 +270,10 @@
                 '<td data-field="id" data-key="2-0-0" class=""><div class="layui-table-cell laytable-cell-2-0-0">' + result[i].id + '</div></td>' +
                 '<td data-field="filename" data-key="2-0-1" class=""><div class="layui-table-cell laytable-cell-2-0-1" align="center">' + result[i].filename + '</div></td>' +
                 '<td data-field="total_size" data-key="2-0-2" class=""><div class="layui-table-cell laytable-cell-2-0-2" align="center">' + result[i].total_size + '</div></td>' +
-                '<td data-field="save_path" data-key="2-0-3" class=""><div class="layui-table-cell laytable-cell-2-0-3" align="center">' + result[i].save_path + '</div></td>' +
+                '<td data-field="status" data-key="2-0-3" class=""><div class="layui-table-cell laytable-cell-2-0-3" align="center">' + result[i].status + '</div></td>' +
+                '<td data-field="attempt" data-key="2-0-4" class=""><div class="layui-table-cell laytable-cell-2-0-4" align="center">' + result[i].attempt + '</div></td>' +
+                '<td data-field="reason" data-key="2-0-5" class=""><div class="layui-table-cell laytable-cell-2-0-5" align="center">' + result[i].reason + '</div></td>' +
+                '<td data-field="save_path" data-key="2-0-6" class=""><div class="layui-table-cell laytable-cell-2-0-6" align="center">' + result[i].save_path + '</div></td>' +
                 "  </tr>";
               obj.append(tr)
 

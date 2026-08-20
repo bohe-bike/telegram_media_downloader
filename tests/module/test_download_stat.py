@@ -98,6 +98,47 @@ class DownloadStatTestCase(unittest.TestCase):
         finally:
             flask_app.config["LOGIN_DISABLED"] = original_login_disabled
 
+    def test_failed_download_is_visible_with_reason_in_completed_list(self):
+        node = TaskNode(chat_id=101, task_id=7)
+        download_stat.finish_download_status(
+            101,
+            12,
+            False,
+            state="failed",
+            reason="ConnectionError: temporary API failure",
+            file_name="broken-video.mp4",
+            total_size=100,
+            node=node,
+            attempt=3,
+            retry_count=2,
+        )
+
+        flask_app = get_flask_app()
+        original_login_disabled = flask_app.config.get("LOGIN_DISABLED")
+        flask_app.config["LOGIN_DISABLED"] = True
+        try:
+            with flask_app.test_client() as client:
+                active_response = client.get("/get_download_list?already_down=false")
+                finished_response = client.get("/get_download_list?already_down=true")
+                self.assertEqual([], active_response.get_json())
+                item = finished_response.get_json()[0]
+                self.assertEqual("failed", item["status"])
+                self.assertEqual("ConnectionError: temporary API failure", item["reason"])
+                self.assertEqual(3, item["attempt"])
+        finally:
+            flask_app.config["LOGIN_DISABLED"] = original_login_disabled
+
+    def test_retrying_task_is_visible_before_the_next_attempt(self):
+        node = TaskNode(chat_id=101, task_id=7)
+        download_stat.mark_download_retrying(
+            101, 13, node, 1, "TimeoutError: request timed out"
+        )
+
+        item = download_stat.get_active_download_result(101, 7)[13]
+        self.assertEqual("retrying", item["state"])
+        self.assertEqual(1, item["retry_count"])
+        self.assertEqual("TimeoutError: request timed out", item["reason"])
+
     def test_bot_status_retries_after_an_edit_error(self):
         node = TaskNode(
             chat_id=101,
@@ -126,6 +167,27 @@ class DownloadStatTestCase(unittest.TestCase):
 
         self.assertLessEqual(len(result), MAX_BOT_STATUS_MESSAGE_LENGTH)
         self.assertTrue(result.endswith("\n...\n`"))
+
+    def test_bot_status_includes_failed_task_details(self):
+        node = TaskNode(
+            chat_id=101,
+            from_user_id=1,
+            reply_message_id=2,
+            bot=object(),
+            task_id=7,
+        )
+        node.download_history[12] = {
+            "status": "failed",
+            "file_name": "broken-video.mp4",
+            "reason": "ConnectionError: temporary API failure",
+        }
+        client = AsyncMock()
+
+        self.run_async(report_bot_status(client, node, immediate_reply=True))
+
+        message = client.edit_message_text.await_args.args[2]
+        self.assertIn("Failed details", message)
+        self.assertIn("broken-video.mp4", message)
 
     def test_collecting_task_cannot_be_finished_early(self):
         node = TaskNode(chat_id=101)
