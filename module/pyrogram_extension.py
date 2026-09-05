@@ -349,7 +349,7 @@ async def upload_telegram_chat_message(
         except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
             await asyncio.sleep(wait_err.value * 2)
             logger.warning(
-                "Upload Message[{}]: FlowWait {}", message.id, wait_err.value
+                "Upload Message[{}]: FloodWait {}", message.id, wait_err.value
             )
         except Exception as e:
             logger.exception(f"Upload file {file_name} error: {e}")
@@ -994,19 +994,16 @@ def record_download_status(func):
         if _download_cache[(node.chat_id, message.id)] is DownloadStatus.Downloading:
             return DownloadStatus.Downloading, None
 
-        _download_cache[(node.chat_id, message.id)] = DownloadStatus.Downloading
+        cache_key = (node.chat_id, message.id)
+        _download_cache[cache_key] = DownloadStatus.Downloading
 
         try:
-            status, file_name = await func(
-                client, message, media_types, file_formats, node
-            )
-        except Exception:
-            _download_cache[(node.chat_id, message.id)] = DownloadStatus.FailedDownload
-            raise
-
-        _download_cache[(node.chat_id, message.id)] = status
-
-        return status, file_name
+            return await func(client, message, media_types, file_formats, node)
+        finally:
+            # This cache is only an in-flight duplicate guard.  Keeping a
+            # terminal value here can permanently block a later retry after
+            # cancellation, worker failure, or an application restart.
+            _download_cache.store.pop(cache_key, None)
 
     return inner
 
@@ -1292,7 +1289,7 @@ async def retry(func: Callable, args: tuple = (), max_attempts=3, wait_second=15
         try:
             return await func(*args)
         except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
-            logger.warning("bad call retry: FlowWait {}", wait_err.value)
+            logger.warning("bad call retry: FloodWait {}", wait_err.value)
             await asyncio.sleep(wait_err.value)
         except Exception as e:
             logger.exception("Error: {}", e)

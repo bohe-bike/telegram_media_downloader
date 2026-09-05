@@ -110,9 +110,9 @@ def _check_download_finish(media_size: int, download_path: str, ui_file_name: st
 
     """
     download_size = os.path.getsize(download_path)
-    if media_size == download_size:
-        logger.success(f"{_t('Successfully downloaded')} - {ui_file_name}")
-    else:
+    # When Telegram does not report the media size we cannot validate the
+    # transfer; trust the downloaded file instead of deleting a good download.
+    if media_size and media_size != download_size:
         logger.warning(
             f"{_t('Media downloaded with wrong size')}: "
             f"{download_size}, {_t('actual')}: "
@@ -120,6 +120,7 @@ def _check_download_finish(media_size: int, download_path: str, ui_file_name: st
         )
         os.remove(download_path)
         raise DownloadSizeMismatch()
+    logger.success(f"{_t('Successfully downloaded')} - {ui_file_name}")
 
 
 def _move_to_download_path(temp_download_path: str, download_path: str):
@@ -494,6 +495,14 @@ async def add_download_task(
     """Add Download task"""
     if message.empty:
         return False
+    if message.id in node.queued_message_ids:
+        logger.warning(
+            "Message[{}]: already queued for chat {}, ignoring duplicate task.",
+            message.id,
+            node.chat_id,
+        )
+        return False
+    node.queued_message_ids.add(message.id)
     node.download_result_detail.pop(message.id, None)
     node.download_status[message.id] = DownloadStatus.Downloading
     _, display_name, expected_size = _get_message_log_meta(message)
@@ -652,17 +661,12 @@ async def finalize_download_task(
         detail=result_detail,
     )
     if node.chat_id in app.chat_download_config:
-        try:
-            # Persist after every terminal transition so a later crash does
-            # not lose the last completed/failure checkpoint.
-            app.update_config()
-        except Exception as error:
-            logger.warning(
-                "Message[{}]: checkpoint update failed: {}",
-                message.id,
-                _format_exception_reason(error),
-            )
+        # Only flag the checkpoint as dirty; the main loop flushes it
+        # periodically so each finished file does not block the event loop
+        # on synchronous YAML writes.
+        app.mark_config_dirty()
     node.failed_download_retry_count.pop(message.id, None)
+    node.queued_message_ids.discard(message.id)
 
 
 def _should_retry_failed_download(
@@ -682,6 +686,30 @@ def _should_retry_failed_download(
     return current_retry < app.failed_download_retry_count
 
 
+def _increment_finished_task(node: TaskNode):
+    """Count one task as terminal without assuming it is a configured chat."""
+    if node.chat_id in app.chat_download_config:
+        app.chat_download_config[node.chat_id].finish_task += 1
+
+
+def _finish_abandoned_retry(message: pyrogram.types.Message, node: TaskNode, reason: str):
+    """Finalize a retry which can no longer be put back on the queue."""
+    node.download_result_detail[message.id] = reason
+    node.download_status[message.id] = DownloadStatus.FailedDownload
+    finish_download_status(
+        node.chat_id,
+        message.id,
+        False,
+        state="failed",
+        reason=reason,
+        node=node,
+        retry_count=node.failed_download_retry_count.get(message.id, 0),
+    )
+    _increment_finished_task(node)
+    node.failed_download_retry_count.pop(message.id, None)
+    node.queued_message_ids.discard(message.id)
+
+
 async def _retry_failed_download_later(
     message: pyrogram.types.Message,
     node: TaskNode,
@@ -694,15 +722,22 @@ async def _retry_failed_download_later(
         f"Message[{message.id}]: download failed, scheduling retry "
         f"{retry_index}/{app.failed_download_retry_count} in {wait_seconds} seconds."
     )
-    await asyncio.sleep(wait_seconds)
+    try:
+        await asyncio.sleep(wait_seconds)
+    except asyncio.CancelledError:
+        _finish_abandoned_retry(message, node, "retry cancelled")
+        raise
 
     if node.is_stop_transmission:
-        if node.chat_id in app.chat_download_config:
-            app.chat_download_config[node.chat_id].finish_task += 1
+        _finish_abandoned_retry(message, node, "task stopped before retry")
         return
 
     if app.is_running:
-        await add_download_task(message, node, is_retry=True)
+        queued = await add_download_task(message, node, is_retry=True)
+        if not queued:
+            _finish_abandoned_retry(message, node, "retry task could not be queued")
+    else:
+        _finish_abandoned_retry(message, node, "app stopped before retry")
 
 
 def _schedule_failed_download_retry(
@@ -717,6 +752,7 @@ def _schedule_failed_download_retry(
 
     retry_index = node.failed_download_retry_count.get(message.id, 0) + 1
     node.failed_download_retry_count[message.id] = retry_index
+    node.queued_message_ids.discard(message.id)
     mark_download_retrying(
         node.chat_id,
         message.id,
@@ -809,7 +845,10 @@ async def download_media(
             if _can_download(_type, file_formats, file_format):
                 if _is_exist(file_name):
                     file_size = os.path.getsize(file_name)
-                    if file_size == media_size:
+                    # Without a reported media size any existing file is
+                    # treated as complete; partial transfers never reach the
+                    # final path (they stay in the temp directory).
+                    if not media_size or file_size == media_size:
                         node.download_result_detail[message.id] = "already exists"
                         logger.info(
                             f"id={message.id} {ui_file_name} "
@@ -910,11 +949,11 @@ async def download_media(
         except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
             failure_reason = f"FloodWait: {wait_err.value}s"
             _cleanup_temp_download(temp_file_name)
-            logger.warning("Message[{}]: FlowWait {}", message.id, wait_err.value)
+            logger.warning("Message[{}]: FloodWait {}", message.id, wait_err.value)
             if _check_timeout(retry, message.id):
                 break
             await asyncio.sleep(max(wait_err.value, 0))
-        except (TimeoutError, TypeError, ConnectionError, OSError) as e:
+        except (TimeoutError, asyncio.TimeoutError, TypeError, ConnectionError, OSError) as e:
             failure_reason = _format_exception_reason(e)
             _cleanup_temp_download(temp_file_name)
             if _check_timeout(retry, message.id):
@@ -998,6 +1037,7 @@ async def worker(client: pyrogram.client.Client):
             if node.is_stop_transmission:
                 if node.chat_id in app.chat_download_config:
                     app.chat_download_config[node.chat_id].finish_task += 1
+                node.queued_message_ids.discard(message.id)
                 continue
 
             _log_download_task_event("Starting", message, node)
@@ -1019,6 +1059,9 @@ async def worker(client: pyrogram.client.Client):
                     "Message[{}]: already downloading, skipping duplicate queue entry.",
                     message.id,
                 )
+                if node.chat_id in app.chat_download_config:
+                    app.chat_download_config[node.chat_id].finish_task += 1
+                node.queued_message_ids.discard(message.id)
                 continue
 
             if _schedule_failed_download_retry(message, node, download_status):
@@ -1052,8 +1095,18 @@ async def worker(client: pyrogram.client.Client):
                         0,
                         time.time() - started_at if started_at else 0,
                     )
-                except Exception:
-                    pass
+                except Exception as finalize_error:
+                    logger.exception(
+                        "Message[{}]: failed to finalize broken task: {}",
+                        message.id,
+                        _format_exception_reason(finalize_error),
+                    )
+                    # Land the counters even when finalize fails so task
+                    # accounting cannot hang waiting for a missing finish.
+                    if node.chat_id in app.chat_download_config:
+                        app.chat_download_config[node.chat_id].finish_task += 1
+                    node.download_status[message.id] = DownloadStatus.FailedDownload
+                    node.queued_message_ids.discard(message.id)
 
 
 async def download_chat_task(
@@ -1147,6 +1200,15 @@ async def run_until_all_task_finish():
 
         if (not app.bot_token and finish) or app.restart_program:
             break
+
+        if (
+            app.config_dirty
+            and time.time() - app._last_config_flush >= app.config_flush_interval
+        ):
+            try:
+                app.update_config()
+            except Exception as error:
+                logger.warning("periodic config flush failed: {}", error)
 
         if max_wait > 0 and waited >= max_wait:
             logger.warning("Timeout waiting for tasks to finish, forcing exit.")

@@ -4,6 +4,7 @@ import os
 import platform
 import queue
 import sys
+import tempfile
 import unittest
 from datetime import datetime
 from typing import List, Union
@@ -14,10 +15,12 @@ import pyrogram
 from media_downloader import (
     _can_download,
     _check_config,
+    _check_download_finish,
     _fetch_message_with_retry,
     _get_media_meta,
     _is_exist,
     _schedule_failed_download_retry,
+    DownloadSizeMismatch,
     app,
     add_download_task,
     download_all_chat,
@@ -871,7 +874,7 @@ class MediaDownloaderTestCase(unittest.TestCase):
             )
         )
         self.assertEqual((DownloadStatus.FailedDownload, None), result)
-        mock_logger.warning.assert_called_with("Message[{}]: FlowWait {}", 420, 420)
+        mock_logger.warning.assert_called_with("Message[{}]: FloodWait {}", 420, 420)
 
         # Test other Exception
         message = MockMessage(
@@ -1049,10 +1052,105 @@ class MediaDownloaderTestCase(unittest.TestCase):
         message = MockMessage(id=99, media=True)
 
         self.loop.run_until_complete(add_download_task(message, node))
+        # simulate the attempt finishing before the retry is requeued
+        node.queued_message_ids.discard(message.id)
         self.loop.run_until_complete(add_download_task(message, node, is_retry=True))
 
         self.assertEqual(node.total_task, 1)
         self.assertEqual(mock_put.call_count, 2)
+
+    @mock.patch("media_downloader.asyncio.Queue.put")
+    def test_add_download_task_ignores_duplicate_enqueue(self, mock_put):
+        node = TaskNode(chat_id=-123)
+        message = MockMessage(id=98, media=True)
+
+        added = self.loop.run_until_complete(add_download_task(message, node))
+        duplicated = self.loop.run_until_complete(add_download_task(message, node))
+
+        self.assertEqual(added, True)
+        self.assertEqual(duplicated, False)
+        self.assertEqual(node.total_task, 1)
+        self.assertEqual(mock_put.call_count, 1)
+
+    @mock.patch(
+        "media_downloader.report_bot_download_status",
+        new=new_report_bot_download_status,
+    )
+    @mock.patch("media_downloader.upload_telegram_chat", new=new_upload_telegram_chat)
+    def test_finalize_download_task_releases_queued_id(self):
+        rest_app(MOCK_CONF)
+        message = MockMessage(id=88, media=True, chat_id=8654123, chat_title="123456")
+        node = TaskNode(chat_id=8654123)
+
+        self.loop.run_until_complete(add_download_task(message, node))
+        self.assertIn(88, node.queued_message_ids)
+
+        self.loop.run_until_complete(
+            finalize_download_task(
+                MockClient(), message, node, DownloadStatus.SuccessDownload, None, 0
+            )
+        )
+
+        self.assertNotIn(88, node.queued_message_ids)
+
+    def test_check_download_finish_keeps_file_when_media_size_unknown(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            download_path = os.path.join(temp_dir, "downloaded.bin")
+            with open(download_path, "wb") as f:
+                f.write(b"0" * 512)
+
+            _check_download_finish(0, download_path, "downloaded.bin")
+
+            self.assertTrue(os.path.exists(download_path))
+
+    def test_check_download_finish_removes_size_mismatch_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            download_path = os.path.join(temp_dir, "downloaded.bin")
+            with open(download_path, "wb") as f:
+                f.write(b"0" * 512)
+
+            with self.assertRaises(DownloadSizeMismatch):
+                _check_download_finish(1024, download_path, "downloaded.bin")
+
+            self.assertFalse(os.path.exists(download_path))
+
+    def test_update_config_atomic_write_leaves_no_temp_file(self):
+        rest_app(MOCK_CONF)
+
+        app.update_config()
+
+        self.assertTrue(os.path.exists("config_test.yaml"))
+        self.assertTrue(os.path.exists("data_test.yaml"))
+        self.assertFalse(os.path.exists("config_test.yaml.tmp"))
+        self.assertFalse(os.path.exists("data_test.yaml.tmp"))
+        self.assertFalse(app.config_dirty)
+
+    def test_mark_config_dirty_flags_pending_flush(self):
+        rest_app(MOCK_CONF)
+        app.config_dirty = False
+
+        app.mark_config_dirty()
+
+        self.assertTrue(app.config_dirty)
+        app.update_config()
+        self.assertFalse(app.config_dirty)
+
+    def test_worker_lands_finish_task_for_duplicate_download(self):
+        rest_app(MOCK_CONF)
+        message = MockMessage(id=20, media=True)
+        node = TaskNode(chat_id=8654123)
+
+        async def duplicate_download_task(*_):
+            app.is_running = False
+            return DownloadStatus.Downloading, None, 0
+
+        with mock.patch("media_downloader.queue", new=MyQueue([(message, node)])):
+            with mock.patch(
+                "media_downloader.download_task", new=duplicate_download_task
+            ):
+                self.loop.run_until_complete(worker(MockClient()))
+
+        self.assertEqual(app.chat_download_config[8654123].finish_task, 1)
 
     @mock.patch("media_downloader.app.loop.create_task")
     def test_schedule_failed_download_retry(self, mock_create_task):

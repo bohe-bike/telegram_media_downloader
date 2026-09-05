@@ -172,6 +172,7 @@ class TaskNode:
         self.media_group_ids: dict = {}
         self.media_group_ids_lock: Lock = Lock()
         self.download_status: dict = {}
+        self.queued_message_ids: set = set()
         self.download_result_detail: dict = {}
         # Keep a small, human-readable terminal history for bot status reports.
         # Unlike ``download_result_detail`` this is not cleared when a task is
@@ -377,6 +378,9 @@ class Application:
         self.application_name: str = application_name
         self.download_filter = Filter()
         self.is_running = True
+        self.config_dirty: bool = False
+        self.config_flush_interval: float = 30.0
+        self._last_config_flush: float = 0.0
 
         self.total_download_task = 0
 
@@ -934,14 +938,28 @@ class Application:
 
         try:
             if immediate:
-                with open(self.config_file, "w", encoding="utf-8") as yaml_file:
-                    _yaml.dump(self.config, yaml_file)
+                self._dump_config_file(self.config_file, self.config)
 
             if immediate:
-                with open(self.app_data_file, "w", encoding="utf-8") as yaml_file:
-                    _yaml.dump(self.app_data, yaml_file)
+                self._dump_config_file(self.app_data_file, self.app_data)
+            self.config_dirty = False
+            self._last_config_flush = time.time()
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
+
+    @staticmethod
+    def _dump_config_file(file_path: str, data: dict):
+        """Atomically dump YAML config data to a file."""
+        temp_path = f"{file_path}.tmp"
+        with open(temp_path, "w", encoding="utf-8") as yaml_file:
+            _yaml.dump(data, yaml_file)
+            yaml_file.flush()
+            os.fsync(yaml_file.fileno())
+        os.replace(temp_path, file_path)
+
+    def mark_config_dirty(self):
+        """Flag that config/app data changed and should be flushed soon."""
+        self.config_dirty = True
 
     def set_language(self, language: Language):
         """Set Language"""

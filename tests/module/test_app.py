@@ -123,14 +123,19 @@ class AppTestCase(unittest.TestCase):
             "demo.mp4",
         )
 
+    @mock.patch("module.app.os.fsync")
+    @mock.patch("module.app.os.replace")
     @mock.patch("__main__.__builtins__.open", new_callable=mock.mock_open)
     @mock.patch("module.app._yaml.dump")
-    def test_update_config(self, mock_dump, mock_open):
+    def test_update_config(self, mock_dump, mock_open, mock_replace, mock_fsync):
         app = Application("", "")
         app.config_file = "config_test.yaml"
         app.app_data_file = "data_test.yaml"
         app.config["chat"] = [{"chat_id": 123, "last_read_message_id": 0}]
         app.update_config()
-        mock_open.assert_any_call("config_test.yaml", "w", encoding="utf-8")
-        mock_open.assert_any_call("data_test.yaml", "w", encoding="utf-8")
+        mock_open.assert_any_call("config_test.yaml.tmp", "w", encoding="utf-8")
+        mock_open.assert_any_call("data_test.yaml.tmp", "w", encoding="utf-8")
+        mock_replace.assert_any_call("config_test.yaml.tmp", "config_test.yaml")
+        mock_replace.assert_any_call("data_test.yaml.tmp", "data_test.yaml")
         self.assertEqual(mock_dump.call_count, 2)
+        self.assertFalse(app.config_dirty)
