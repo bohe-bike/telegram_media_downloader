@@ -114,7 +114,18 @@
         var items = completedFilter === 'all' ? completedTasks : completedTasks.filter(function (item) { return item.status === completedFilter; });
         table.reload('already_download_list', { data: items });
       }
-      function updateActiveTasks() { $.getJSON('get_download_list?already_down=false', function (items) { table.reload('download_list', { data: items }); }); }
+      function updateActiveTasks() {
+        $.getJSON('get_download_list?already_down=false', function (items) {
+          var body = $('.layui-table-view[lay-id="download_list"] .layui-table-body');
+          var scrollTop = body.scrollTop();
+          table.reload('download_list', {
+            data: items,
+            done: function () {
+              $('.layui-table-view[lay-id="download_list"] .layui-table-body').scrollTop(scrollTop);
+            }
+          });
+        });
+      }
       function updateCompletedTasks() { $.getJSON('get_download_list?already_down=true', function (items) { completedTasks = items; renderCompleted(); }); }
       function updateSummary() {
         $.getJSON('get_download_summary', function (summary) {
