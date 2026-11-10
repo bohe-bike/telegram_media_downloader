@@ -98,6 +98,43 @@ class DownloadStatTestCase(unittest.TestCase):
         finally:
             flask_app.config["LOGIN_DISABLED"] = original_login_disabled
 
+    def test_active_download_list_keeps_stable_order(self):
+        first_task = TaskNode(chat_id=101, task_id=1)
+        second_task = TaskNode(chat_id=102, task_id=2)
+        self.run_async(
+            download_stat.update_download_status(
+                20, 100, 11, "earlier.mp4", time.time() - 1, first_task, AsyncMock()
+            )
+        )
+        # 后创建的任务 updated_at 更新，旧实现会把它排到最前面。
+        self.run_async(
+            download_stat.update_download_status(
+                10, 100, 22, "later.mp4", time.time() - 1, second_task, AsyncMock()
+            )
+        )
+
+        flask_app = get_flask_app()
+        original_login_disabled = flask_app.config.get("LOGIN_DISABLED")
+        flask_app.config["LOGIN_DISABLED"] = True
+        try:
+            with flask_app.test_client() as client:
+                first_response = client.get(
+                    "/get_download_list?already_down=false"
+                ).get_json()
+                second_response = client.get(
+                    "/get_download_list?already_down=false"
+                ).get_json()
+        finally:
+            flask_app.config["LOGIN_DISABLED"] = original_login_disabled
+
+        expected = [("101", "11"), ("102", "22")]
+        self.assertEqual(
+            expected, [(item["chat"], item["id"]) for item in first_response]
+        )
+        self.assertEqual(
+            expected, [(item["chat"], item["id"]) for item in second_response]
+        )
+
     def test_failed_download_is_visible_with_reason_in_completed_list(self):
         node = TaskNode(chat_id=101, task_id=7)
         download_stat.finish_download_status(

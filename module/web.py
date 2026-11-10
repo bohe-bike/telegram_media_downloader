@@ -259,9 +259,27 @@ def get_download_list():
                     "reason": value.get("reason", ""),
                     "attempt": value.get("attempt", 1),
                     "retry_count": value.get("retry_count", 0),
+                    "task_id": value.get("task_id", 0),
                     "updated_at": value.get("updated_at", value.get("end_time", 0)),
                 }
             )
 
-    items.sort(key=lambda item: item["updated_at"], reverse=True)
+    def _numeric(value) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    if already_down:
+        # 已结束任务按完成时间倒序，最新的结果排在最前面。
+        items.sort(key=lambda item: item["updated_at"], reverse=True)
+    else:
+        # 活动任务使用稳定的排序键，避免每秒刷新时行序跳动。
+        items.sort(
+            key=lambda item: (
+                item["task_id"],
+                _numeric(item["chat"]),
+                _numeric(item["id"]),
+            )
+        )
     return jsonify(items)

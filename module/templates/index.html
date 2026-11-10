@@ -99,6 +99,8 @@
         var $ = layui.$;
         var completedTasks = [];
         var completedFilter = "all";
+        var activeTasksSnapshot = "";
+        var activeRequestPending = false;
         var stateLabels = {
           queued: "排队中",
           retrying: "等待重试",
@@ -217,7 +219,8 @@
             ],
           ],
           done: function () {
-            element.render();
+            // 数据刷新后重新计算进度条宽度
+            element.render("progress");
           },
         });
         table.render({
@@ -285,20 +288,26 @@
           table.reload("already_download_list", { data: items });
         }
         function updateActiveTasks() {
-          $.getJSON("get_download_list?already_down=false", function (items) {
-            var body = $(
-              '.layui-table-view[lay-id="download_list"] .layui-table-body',
-            );
-            var scrollTop = body.scrollTop();
-            table.reload("download_list", {
-              data: items,
-              done: function () {
-                $(
-                  '.layui-table-view[lay-id="download_list"] .layui-table-body',
-                ).scrollTop(scrollTop);
-              },
+          if (activeRequestPending) return;
+          activeRequestPending = true;
+          $.ajax({
+            url: "get_download_list?already_down=false",
+            dataType: "json",
+            timeout: 5000,
+          })
+            .done(function (items) {
+              var snapshot = JSON.stringify(items);
+              if (snapshot === activeTasksSnapshot) return;
+              activeTasksSnapshot = snapshot;
+              // 只刷新表格数据，保留滚动位置以及 done 回调中的进度条渲染
+              table.reloadData("download_list", {
+                data: items,
+                scrollPos: "fixed",
+              });
+            })
+            .always(function () {
+              activeRequestPending = false;
             });
-          });
         }
         function updateCompletedTasks() {
           $.getJSON("get_download_list?already_down=true", function (items) {
