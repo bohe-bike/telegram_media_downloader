@@ -51,7 +51,15 @@
         </ul>
         <div class="layui-tab-content dashboard-content">
           <div class="layui-tab-item layui-show">
-            <div class="table-caption">实时任务状态 <span>每秒刷新</span></div>
+            <div class="task-toolbar">
+              <div class="table-caption">实时任务状态 <span>每秒刷新</span></div>
+              <label class="channel-filter">
+                <span>频道</span>
+                <select id="active_channel_filter" class="channel-select">
+                  <option value="all">全部频道</option>
+                </select>
+              </label>
+            </div>
             <table class="layui-hide" id="download_list"></table>
           </div>
           <div class="layui-tab-item">
@@ -75,6 +83,9 @@
                 <button class="status-filter" data-status-filter="skipped">
                   跳过
                 </button>
+                <select id="completed_channel_filter" class="channel-select">
+                  <option value="all">全部频道</option>
+                </select>
               </div>
             </div>
             <table class="layui-hide" id="already_download_list"></table>
@@ -99,8 +110,21 @@
         var $ = layui.$;
         var completedTasks = [];
         var completedFilter = "all";
+        var completedChannelFilter = "all";
+        var activeTasks = [];
         var activeTasksSnapshot = "";
         var activeRequestPending = false;
+        var activeChannelFilter = "all";
+        var channelPalette = [
+          "#1677ff",
+          "#21a366",
+          "#7b61ff",
+          "#df4c55",
+          "#d48806",
+          "#08979c",
+          "#c41d7f",
+          "#531dab",
+        ];
         var stateLabels = {
           queued: "排队中",
           retrying: "等待重试",
@@ -163,8 +187,89 @@
             '%"></div></div>'
           );
         }
-        function safeText(value) {
-          return escapeHtml(value);
+        function channelColor(chat) {
+          var text = String(chat == null ? "" : chat);
+          var hash = 0;
+          for (var i = 0; i < text.length; i += 1) {
+            hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+          }
+          return channelPalette[hash % channelPalette.length];
+        }
+        function channelTemplate(data) {
+          var title = data.chat_title || data.chat || "未知频道";
+          var tip =
+            data.chat_title && data.chat
+              ? data.chat_title + " (" + data.chat + ")"
+              : title;
+          return (
+            '<span class="channel-tag" title="' +
+            escapeHtml(tip) +
+            '"><i class="channel-dot" style="background:' +
+            channelColor(data.chat) +
+            '"></i><span class="channel-name">' +
+            escapeHtml(title) +
+            "</span></span>"
+          );
+        }
+        function fileTemplate(data) {
+          return (
+            '<span class="file-name" title="' +
+            escapeHtml(data.filename) +
+            '">' +
+            escapeHtml(data.filename) +
+            "</span>"
+          );
+        }
+        function shortChatId(chat) {
+          var text = String(chat);
+          return text.length > 8 ? "…" + text.slice(-6) : text;
+        }
+        function channelOptions(items) {
+          var seen = {};
+          var labelCounts = {};
+          var options = [];
+          items.forEach(function (item) {
+            var value = String(item.chat);
+            if (seen[value]) return;
+            seen[value] = true;
+            var label = item.chat_title || value;
+            labelCounts[label] = (labelCounts[label] || 0) + 1;
+            options.push({ value: value, label: label });
+          });
+          options.forEach(function (option) {
+            // 同名频道在筛选框中补充 chat id，避免无法区分
+            if (labelCounts[option.label] > 1) {
+              option.label += " (" + shortChatId(option.value) + ")";
+            }
+          });
+          options.sort(function (a, b) {
+            return a.label.localeCompare(b.label);
+          });
+          return options;
+        }
+        function fillChannelFilter(select, items, currentValue) {
+          var options = channelOptions(items);
+          var signature = JSON.stringify(options);
+          // 频道列表没变化时不重建下拉框，避免打断用户操作
+          if (select.data("channel-signature") === signature) {
+            return currentValue;
+          }
+          select.data("channel-signature", signature);
+          var html = '<option value="all">全部频道</option>';
+          var matched = currentValue === "all";
+          options.forEach(function (option) {
+            if (option.value === currentValue) matched = true;
+            html +=
+              '<option value="' +
+              escapeHtml(option.value) +
+              '">' +
+              escapeHtml(option.label) +
+              "</option>";
+          });
+          select.html(html);
+          var next = matched ? currentValue : "all";
+          select.val(next);
+          return next;
         }
 
         table.render({
@@ -173,17 +278,21 @@
           data: [],
           height: "full-290",
           limit: 10000,
+          even: true,
           cols: [
             [
-              { field: "chat", title: "频道", minWidth: 110 },
+              {
+                field: "chat_title",
+                title: "频道",
+                minWidth: 160,
+                templet: channelTemplate,
+              },
               { field: "id", title: "消息 ID", width: 95 },
               {
                 field: "filename",
                 title: "文件",
-                minWidth: 180,
-                templet: function (d) {
-                  return safeText(d.filename);
-                },
+                minWidth: 200,
+                templet: fileTemplate,
               },
               {
                 field: "status",
@@ -229,17 +338,21 @@
           data: [],
           height: "full-320",
           limit: 10000,
+          even: true,
           cols: [
             [
-              { field: "chat", title: "频道", minWidth: 110 },
+              {
+                field: "chat_title",
+                title: "频道",
+                minWidth: 160,
+                templet: channelTemplate,
+              },
               { field: "id", title: "消息 ID", width: 95 },
               {
                 field: "filename",
                 title: "文件",
-                minWidth: 180,
-                templet: function (d) {
-                  return safeText(d.filename);
-                },
+                minWidth: 200,
+                templet: fileTemplate,
               },
               {
                 field: "status",
@@ -279,13 +392,28 @@
         });
 
         function renderCompleted() {
-          var items =
-            completedFilter === "all"
-              ? completedTasks
-              : completedTasks.filter(function (item) {
-                  return item.status === completedFilter;
-                });
+          var items = completedTasks.filter(function (item) {
+            var statusMatch =
+              completedFilter === "all" || item.status === completedFilter;
+            var channelMatch =
+              completedChannelFilter === "all" ||
+              String(item.chat) === completedChannelFilter;
+            return statusMatch && channelMatch;
+          });
           table.reload("already_download_list", { data: items });
+        }
+        function renderActiveTasks() {
+          var items =
+            activeChannelFilter === "all"
+              ? activeTasks
+              : activeTasks.filter(function (item) {
+                  return String(item.chat) === activeChannelFilter;
+                });
+          // 只刷新表格数据，保留滚动位置以及 done 回调中的进度条渲染
+          table.reloadData("download_list", {
+            data: items,
+            scrollPos: "fixed",
+          });
         }
         function updateActiveTasks() {
           if (activeRequestPending) return;
@@ -299,11 +427,13 @@
               var snapshot = JSON.stringify(items);
               if (snapshot === activeTasksSnapshot) return;
               activeTasksSnapshot = snapshot;
-              // 只刷新表格数据，保留滚动位置以及 done 回调中的进度条渲染
-              table.reloadData("download_list", {
-                data: items,
-                scrollPos: "fixed",
-              });
+              activeTasks = items;
+              activeChannelFilter = fillChannelFilter(
+                $("#active_channel_filter"),
+                items,
+                activeChannelFilter,
+              );
+              renderActiveTasks();
             })
             .always(function () {
               activeRequestPending = false;
@@ -312,6 +442,11 @@
         function updateCompletedTasks() {
           $.getJSON("get_download_list?already_down=true", function (items) {
             completedTasks = items;
+            completedChannelFilter = fillChannelFilter(
+              $("#completed_channel_filter"),
+              items,
+              completedChannelFilter,
+            );
             renderCompleted();
           });
         }
@@ -345,6 +480,14 @@
           completedFilter = $(this).data("status-filter");
           $(".status-filter").removeClass("filter-active");
           $(this).addClass("filter-active");
+          renderCompleted();
+        });
+        $("#active_channel_filter").on("change", function () {
+          activeChannelFilter = $(this).val();
+          renderActiveTasks();
+        });
+        $("#completed_channel_filter").on("change", function () {
+          completedChannelFilter = $(this).val();
           renderCompleted();
         });
         $.get(
