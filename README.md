@@ -246,6 +246,20 @@ enable_download_txt: false
 - **allowed_user_ids** - Who is allowed to use the robot? The default login account can be used. Please add single quotes to the name with @.
 - **date_format** Support custom configuration of media_datetime format in file_path_prefix.see [python-datetime](https://docs.python.org/3/library/datetime.html)
 - **enable_download_txt** Enable download txt file, default `false`
+- **organize** - Organize downloads into a synchronized media library (disabled by default)
+  - `enable` - Enable the planner, default `false`
+  - `sync_root` - Media library root, e.g. `E:\ASMR`
+  - `audio_dir` / `video_dir` - Target subfolders, default `mp3` / `mp4`
+  - `pending_dir` - Folder for files whose author cannot be confirmed, default `未整理`
+  - `backup_dir` - Backup folder used before moving, default `.organize_backup`
+  - `plan_file` - Audit file for the generated plan, default `log/organize_plan.json`
+  - `source_markers` - Source markers removed from author/album tags
+  - `author_aliases` - Manual alias mapping (`alias: canonical author`)
+  - `write_audio_tags` - Unify audio Artist/AlbumArtist/Album tags, default `true`
+  - `auto_learn_aliases` - Learn aliases from existing author folders, default `true`
+  - `scan_library_roots` - Scan unclassified files under the library roots, default `true`
+  - `download_root` - Download directory; falls back to `save_path` when empty
+  - `scan_download_root` - Scan the download directory so work resumes after a restart, default `true`
 
 ## Execution
 
@@ -259,6 +273,30 @@ The specific location reference is as follows:
 The complete directory of video download is: `save_path`/`chat_title`/`media_datetime`/`media_type`.
 The order of the list is not fixed and can be randomly combined.
 If the configuration is empty, all files are saved under `save_path`.
+
+## Post-download organizing
+
+After setting `organize.enable` and `organize.sync_root`, the web dashboard exposes an
+organize-plan tab. The planner scans downloaded files and proposes:
+
+```text
+<sync_root>/mp3/<author>/<file>
+<sync_root>/mp4/<author>/<file>
+<sync_root>/未整理/<file>      # author cannot be confirmed
+```
+
+- Audio author comes from Artist/AlbumArtist/Album tags after removing source markers.
+- MP3/M4A/FLAC/MP4A tags are unified to the confirmed author; AAC is only moved.
+- Video authors come from filename markers, reusing existing author folders first.
+- Rules are applied per channel folder under `download_root`; channel folders never
+  influence each other.
+- When several videos in one channel folder share a reliable prefix, that prefix is
+  used as their author.
+- Unknown authors are never guessed; those files go to `未整理`.
+- The plan can be filtered by channel folder, and only the filtered rows can be executed.
+- Existing targets are skipped by default; nothing is overwritten.
+- Files are moved only after you confirm the plan. Every move is backed up and verified,
+  and the source is restored on failure.
 
 ## Proxy
 

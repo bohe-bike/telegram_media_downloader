@@ -241,6 +241,20 @@ enable_download_txt: false
 - **allowed_user_ids** - 允许哪些人使用机器人，默认登录账号可以使用，带@的名称请加单引号
 - **date_format** - 支持自定义配置file_path_prefix中media_datetime的格式，具体格式查看 [python-datetime](https://docs.python.org/zh-cn/3/library/time.html)
 - **enable_download_txt** 启用下载txt文件，默认`false`
+- **organize** - 下载完成后整理并同步到媒体库（默认关闭）
+  - `enable` - 是否启用，默认`false`
+  - `sync_root` - 同步库根目录，例如 `E:\ASMR`
+  - `audio_dir` / `video_dir` - 音频/视频目标子目录，默认`mp3` / `mp4`
+  - `pending_dir` - 无法确认作者时的目录，默认`未整理`
+  - `backup_dir` - 执行前备份目录，默认`.organize_backup`
+  - `plan_file` - 整理计划审计文件，默认`log/organize_plan.json`
+  - `source_markers` - 需要从作者/专辑标签中清除的来源标记
+  - `author_aliases` - 手动别名映射，格式`别名: 正式作者`
+  - `write_audio_tags` - 是否统一写入音频 Artist/AlbumArtist/Album，默认`true`
+  - `auto_learn_aliases` - 是否从已有作者目录学习别名，默认`true`
+  - `scan_library_roots` - 是否扫描同步库根目录下的未归档文件，默认`true`
+  - `download_root` - 下载目录，留空时使用`save_path`
+  - `scan_download_root` - 是否扫描下载目录（重启后可继续整理），默认`true`
 
 ## 执行
 
@@ -261,6 +275,27 @@ file_path_prefix:
 视频下载完整目录为：`save_path`/`chat_title`/`media_datetime`/`media_type`。
 列表的顺序不定，可以随机组合。
 如果配置为空，则所有文件保存在`save_path`下。
+
+## 下载后整理
+
+启用 `organize.enable` 并配置 `organize.sync_root` 后，Web 界面会多出“整理计划”标签页。
+规划器会扫描下载完成的文件，按以下结构生成计划：
+
+```text
+<sync_root>/mp3/<作者>/<文件>
+<sync_root>/mp4/<作者>/<文件>
+<sync_root>/未整理/<文件>      # 无法确认作者
+```
+
+- 音频优先读取 Artist/AlbumArtist/Album 标签，并清除 `TG@Jingluoasmr` 等来源标记。
+- MP3/M4A/FLAC/MP4A 会统一写入正式作者标签；AAC 只移动，不修改标签。
+- 视频只使用文件名中的作者标记，并优先复用已有作者目录。
+- 整理规则以 `download_root` 下的频道文件夹为单位执行，不同频道文件夹之间不会互相影响。
+- 同一频道文件夹内多个视频文件共享可靠前缀时，会使用该前缀作为这些文件的作者。
+- 作者无法确认时不猜测，直接放入`未整理`；不会基于名称相似度合并作者。
+- 规划表支持按频道文件夹筛选，可以只执行当前筛选结果。
+- 目标文件已存在时默认跳过，不覆盖。
+- 点击“执行全部”后才会移动文件；执行前自动备份并校验，失败时恢复源文件。
 
 ## 代理
 
