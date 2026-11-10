@@ -51,6 +51,8 @@ class MockUser:
     def __init__(self, **kwargs):
         self.id = kwargs.get("id", 0)
         self.username = kwargs.get("username", "")
+        self.first_name = kwargs.get("first_name", None)
+        self.last_name = kwargs.get("last_name", None)
 
 
 class MockAudio:

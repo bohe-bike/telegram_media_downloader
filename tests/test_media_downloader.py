@@ -47,6 +47,7 @@ from .test_common import (
     MockDocument,
     MockMessage,
     MockPhoto,
+    MockUser,
     MockVideo,
     MockVideoNote,
     MockVoice,
@@ -651,6 +652,66 @@ class MediaDownloaderTestCase(unittest.TestCase):
                         app.temp_save_path,
                         "test2/6 - video_note_2019-07-25T14_53_50.mp4",
                     )
+                ),
+                "mp4",
+            ),
+            result,
+        )
+
+    def test_get_media_meta_uses_forwarded_channel_folder(self):
+        rest_app(MOCK_CONF)
+        app.save_path = MOCK_DIR
+        message = MockMessage(
+            id=7,
+            media=True,
+            dis_chat=True,
+            chat=None,
+            date=datetime(2022, 8, 5, 14, 35, 12),
+            video=MockVideo(file_name="test.mp4", mime_type="video/mp4"),
+        )
+        message.forward_from_chat = Chat(
+            chat_id=-1001234, chat_title="forwarded channel"
+        )
+
+        result = self.loop.run_until_complete(
+            async_get_media_meta(5625869564, message, message.video, "video")
+        )
+
+        self.assertEqual(
+            (
+                platform_generic_path(
+                    "/root/project/forwarded channel/2022_08/7 - test.mp4"
+                ),
+                platform_generic_path(
+                    os.path.join(app.temp_save_path, "forwarded channel/7 - test.mp4")
+                ),
+                "mp4",
+            ),
+            result,
+        )
+
+    def test_get_media_meta_uses_forwarded_user_folder(self):
+        rest_app(MOCK_CONF)
+        app.save_path = MOCK_DIR
+        message = MockMessage(
+            id=8,
+            media=True,
+            dis_chat=True,
+            chat=None,
+            date=datetime(2022, 8, 5, 14, 35, 12),
+            video=MockVideo(file_name="test.mp4", mime_type="video/mp4"),
+        )
+        message.forward_from = MockUser(id=123, first_name="Alice", last_name="Zhang")
+
+        result = self.loop.run_until_complete(
+            async_get_media_meta(5625869564, message, message.video, "video")
+        )
+
+        self.assertEqual(
+            (
+                platform_generic_path("/root/project/Alice Zhang/2022_08/8 - test.mp4"),
+                platform_generic_path(
+                    os.path.join(app.temp_save_path, "Alice Zhang/8 - test.mp4")
                 ),
                 "mp4",
             ),

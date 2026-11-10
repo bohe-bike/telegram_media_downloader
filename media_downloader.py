@@ -394,6 +394,43 @@ def _cleanup_temp_download(temp_download_path: Optional[str]):
 # pylint: disable = R0912
 
 
+def _get_message_dirname(
+    chat_id: Union[int, str], message: pyrogram.types.Message
+) -> str:
+    """Return the folder name used to group a message's downloaded files.
+
+    Messages read from a channel or group use that chat's title. Media sent or
+    forwarded to the bot lives in a private chat, which has no title, so the
+    original forwarded source is used instead of falling back to the private
+    chat id (which would merge files from every source channel into one
+    folder).
+    """
+    if message.chat and getattr(message.chat, "title", None):
+        return validate_title(f"{message.chat.title}")
+
+    forward_chat = getattr(message, "forward_from_chat", None)
+    if forward_chat and getattr(forward_chat, "title", None):
+        return validate_title(f"{forward_chat.title}")
+
+    forward_user = getattr(message, "forward_from", None)
+    if forward_user:
+        name = " ".join(
+            part
+            for part in (
+                getattr(forward_user, "first_name", None),
+                getattr(forward_user, "last_name", None),
+            )
+            if part
+        )
+        return validate_title(name or f"{forward_user.id}")
+
+    forward_sender_name = getattr(message, "forward_sender_name", None)
+    if forward_sender_name:
+        return validate_title(f"{forward_sender_name}")
+
+    return validate_title(f"{chat_id}")
+
+
 async def _get_media_meta(
     chat_id: Union[int, str],
     message: pyrogram.types.Message,
@@ -422,9 +459,7 @@ async def _get_media_meta(
 
     file_name = None
     temp_file_name = None
-    dirname = validate_title(f"{chat_id}")
-    if message.chat and message.chat.title:
-        dirname = validate_title(f"{message.chat.title}")
+    dirname = _get_message_dirname(chat_id, message)
 
     if message.date:
         datetime_dir_name = message.date.strftime(app.date_format)
@@ -529,9 +564,7 @@ async def save_msg_to_file(
     app, chat_id: Union[int, str], message: pyrogram.types.Message
 ):
     """Write message text into file"""
-    dirname = validate_title(
-        message.chat.title if message.chat and message.chat.title else str(chat_id)
-    )
+    dirname = _get_message_dirname(chat_id, message)
     datetime_dir_name = message.date.strftime(app.date_format) if message.date else "0"
 
     file_save_path = app.get_file_save_path("msg", dirname, datetime_dir_name)
