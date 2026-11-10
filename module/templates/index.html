@@ -48,6 +48,7 @@
         <ul class="layui-tab-title dashboard-tabs">
           <li class="layui-this">进行中</li>
           <li>任务结果</li>
+          <li>整理计划</li>
         </ul>
         <div class="layui-tab-content dashboard-content">
           <div class="layui-tab-item layui-show">
@@ -90,6 +91,32 @@
             </div>
             <table class="layui-hide" id="already_download_list"></table>
           </div>
+          <div class="layui-tab-item">
+            <div class="task-toolbar">
+              <div class="table-caption">
+                整理计划 <span>确认后才会移动文件，执行前自动备份</span>
+              </div>
+              <div class="organize-actions">
+                <label class="channel-filter">
+                  <span>频道文件夹</span>
+                  <select id="organize_folder_filter" class="channel-select">
+                    <option value="all">全部频道文件夹</option>
+                  </select>
+                </label>
+                <button id="refresh_organize_plan" class="ghost-btn">
+                  刷新计划
+                </button>
+                <button id="execute_organize_filter" class="ghost-btn">
+                  执行当前筛选
+                </button>
+                <button id="execute_organize_plan" class="primary-btn">
+                  执行全部
+                </button>
+              </div>
+            </div>
+            <div id="organize_summary" class="organize-summary"></div>
+            <table class="layui-hide" id="organize_list"></table>
+          </div>
         </div>
       </div>
     </main>
@@ -104,9 +131,10 @@
 
     <script src="static/layui/layui.js"></script>
     <script>
-      layui.use(["table", "element"], function () {
+      layui.use(["table", "element", "layer"], function () {
         var table = layui.table;
         var element = layui.element;
+        var layer = layui.layer;
         var $ = layui.$;
         var completedTasks = [];
         var completedFilter = "all";
@@ -115,6 +143,8 @@
         var activeTasksSnapshot = "";
         var activeRequestPending = false;
         var activeChannelFilter = "all";
+        var organizeEntries = [];
+        var organizeFolderFilter = "all";
         var channelPalette = [
           "#1677ff",
           "#21a366",
@@ -217,6 +247,63 @@
             escapeHtml(data.filename) +
             '">' +
             escapeHtml(data.filename) +
+            "</span>"
+          );
+        }
+        function organizeKindTemplate(data) {
+          var label = data.kind === "audio" ? "音频" : "视频";
+          return (
+            '<span class="kind-badge kind-badge--' +
+            escapeHtml(data.kind) +
+            '">' +
+            label +
+            "</span>"
+          );
+        }
+        function organizeAuthorTemplate(data) {
+          if (!data.author) return '<span class="muted">未确认</span>';
+          return (
+            '<span class="channel-tag"><i class="channel-dot" style="background:' +
+            channelColor(data.author) +
+            '"></i><span class="channel-name">' +
+            escapeHtml(data.author) +
+            "</span></span>"
+          );
+        }
+        function organizeFolderTemplate(data) {
+          var folder = data.channel_folder || "下载根目录";
+          return (
+            '<span class="channel-tag" title="' +
+            escapeHtml(folder) +
+            '"><i class="channel-dot" style="background:' +
+            channelColor(folder) +
+            '"></i><span class="channel-name">' +
+            escapeHtml(folder) +
+            "</span></span>"
+          );
+        }
+        function organizeStatusBadge(data) {
+          var states = {
+            planned: ["downloading", "待执行"],
+            done: ["success", "已执行"],
+            failed: ["failed", "失败"],
+            skipped: ["skipped", "跳过"],
+          };
+          var state = states[data.status] || [data.status, data.status];
+          return (
+            '<span class="status-badge status-badge--' +
+            escapeHtml(state[0]) +
+            '">' +
+            escapeHtml(state[1]) +
+            "</span>"
+          );
+        }
+        function organizeTargetTemplate(data) {
+          return (
+            '<span class="path-text" title="' +
+            escapeHtml(data.target) +
+            '">' +
+            escapeHtml(data.target) +
             "</span>"
           );
         }
@@ -390,6 +477,154 @@
             ],
           ],
         });
+        table.render({
+          elem: "#organize_list",
+          id: "organize_list",
+          data: [],
+          height: "full-360",
+          limit: 10000,
+          even: true,
+          cols: [
+            [
+              {
+                field: "filename",
+                title: "文件",
+                minWidth: 220,
+                templet: fileTemplate,
+              },
+              {
+                field: "kind",
+                title: "类型",
+                width: 82,
+                align: "center",
+                templet: organizeKindTemplate,
+              },
+              {
+                field: "channel_folder",
+                title: "频道文件夹",
+                minWidth: 160,
+                templet: organizeFolderTemplate,
+              },
+              {
+                field: "author",
+                title: "作者",
+                minWidth: 150,
+                templet: organizeAuthorTemplate,
+              },
+              {
+                field: "target",
+                title: "目标位置",
+                minWidth: 280,
+                templet: organizeTargetTemplate,
+              },
+              {
+                field: "status",
+                title: "状态",
+                width: 100,
+                templet: organizeStatusBadge,
+              },
+              {
+                field: "message",
+                title: "说明",
+                minWidth: 200,
+                templet: reasonTemplate,
+              },
+            ],
+          ],
+        });
+
+        function fillOrganizeFolderFilter(entries) {
+          var select = $("#organize_folder_filter");
+          var seen = {};
+          var folders = [];
+          entries.forEach(function (entry) {
+            var folder = entry.channel_folder || "";
+            var value = "folder:" + folder;
+            if (seen[value]) return;
+            seen[value] = true;
+            folders.push({ value: value, label: folder || "下载根目录" });
+          });
+          var signature = JSON.stringify(folders);
+          if (select.data("folder-signature") === signature) return;
+          select.data("folder-signature", signature);
+          select.empty().append('<option value="all">全部频道文件夹</option>');
+          folders.forEach(function (item) {
+            select.append(
+              '<option value="' +
+                escapeHtml(item.value) +
+                '">' +
+                escapeHtml(item.label) +
+                "</option>",
+            );
+          });
+          var exists = false;
+          select.find("option").each(function () {
+            if ($(this).val() === organizeFolderFilter) exists = true;
+          });
+          organizeFolderFilter = exists ? organizeFolderFilter : "all";
+          select.val(organizeFolderFilter);
+        }
+        function organizeFilteredEntries() {
+          return organizeEntries.filter(function (entry) {
+            if (organizeFolderFilter === "all") return true;
+            return "folder:" + (entry.channel_folder || "") === organizeFolderFilter;
+          });
+        }
+        function renderOrganizeTable() {
+          table.reload("organize_list", { data: organizeFilteredEntries() });
+        }
+        function renderOrganizePlan(plan) {
+          var summary = $("#organize_summary");
+          if (!plan || !plan.enabled) {
+            organizeEntries = [];
+            fillOrganizeFolderFilter(organizeEntries);
+            summary.html(
+              '<span class="organize-empty">整理功能未启用，请在 config.yaml 中配置 organize.enable 和 organize.sync_root</span>',
+            );
+            table.reload("organize_list", { data: [] });
+            return;
+          }
+          var counts = plan.summary || {};
+          summary.html(
+            '<span class="organize-chip">待执行 <b>' +
+              (counts.move || 0) +
+              "</b></span>" +
+              '<span class="organize-chip">冲突 <b>' +
+              (counts.conflict || 0) +
+              "</b></span>" +
+              '<span class="organize-chip">未整理 <b>' +
+              (counts.pending || 0) +
+              "</b></span>" +
+              '<span class="organize-chip">已执行 <b>' +
+              (counts.done || 0) +
+              "</b></span>" +
+              '<span class="organize-chip">失败 <b>' +
+              (counts.failed || 0) +
+              "</b></span>",
+          );
+          if (plan.warning) {
+            summary.append(
+              '<span class="organize-empty">' +
+                escapeHtml(plan.warning) +
+                "</span>",
+            );
+          }
+          organizeEntries = plan.entries || [];
+          fillOrganizeFolderFilter(organizeEntries);
+          renderOrganizeTable();
+        }
+        function loadOrganizePlan(refresh) {
+          var request = refresh
+            ? $.post("refresh_organize_plan")
+            : $.get("get_organize_plan");
+          request
+            .done(function (plan) {
+              renderOrganizePlan(plan);
+            })
+            .fail(function () {
+              layer.msg("加载整理计划失败");
+            });
+        }
 
         function renderCompleted() {
           var items = completedTasks.filter(function (item) {
@@ -490,6 +725,70 @@
           completedChannelFilter = $(this).val();
           renderCompleted();
         });
+        $("#refresh_organize_plan").on("click", function () {
+          loadOrganizePlan(true);
+        });
+        $("#organize_folder_filter").on("change", function () {
+          organizeFolderFilter = $(this).val();
+          renderOrganizeTable();
+        });
+        function executeOrganize(entryIds, scopeText) {
+          if (entryIds && !entryIds.length) {
+            layer.msg("当前筛选下没有待执行的整理项");
+            return;
+          }
+          layer.confirm(
+            "将整理「" +
+              scopeText +
+              "」中的文件；音频会写入作者标签，执行前会自动备份。是否继续？",
+            { title: "执行整理" },
+            function (index) {
+              layer.close(index);
+              var loading = layer.msg("正在执行整理…", {
+                icon: 16,
+                shade: 0.1,
+                time: 0,
+              });
+              $.ajax({
+                url: "execute_organize_plan",
+                type: "POST",
+                contentType: "application/json",
+                data: JSON.stringify({ entry_ids: entryIds || [] }),
+              })
+                .done(function (result) {
+                  layer.close(loading);
+                  layer.msg(result.message || "执行完成", { time: 3000 });
+                  if (result.plan) {
+                    renderOrganizePlan(result.plan);
+                  } else {
+                    loadOrganizePlan(false);
+                  }
+                })
+                .fail(function () {
+                  layer.close(loading);
+                  layer.msg("执行整理失败");
+                });
+            },
+          );
+        }
+        $("#execute_organize_filter").on("click", function () {
+          var targets = organizeFilteredEntries().filter(function (entry) {
+            return entry.status === "planned";
+          });
+          var scopeText =
+            organizeFolderFilter === "all"
+              ? "全部频道文件夹"
+              : $("#organize_folder_filter option:selected").text();
+          executeOrganize(
+            targets.map(function (entry) {
+              return entry.id;
+            }),
+            scopeText,
+          );
+        });
+        $("#execute_organize_plan").on("click", function () {
+          executeOrganize(null, "全部频道文件夹");
+        });
         $.get(
           "get_app_version",
           function (result) {
@@ -505,6 +804,7 @@
         setInterval(updateDownloadStatus, 1000);
         element.on("tab(telegram_media_downloader)", function (data) {
           if (data.index === 1) updateCompletedTasks();
+          if (data.index === 2) loadOrganizePlan(false);
         });
       });
     </script>

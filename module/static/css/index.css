@@ -59,6 +59,18 @@ body { margin: 0; padding: 24px; min-width: 320px; color: var(--ink); background
 .channel-tag { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border-radius: 999px; padding: 3px 9px; color: #3d4a63; background: #f1f5fb; font-size: 12px; font-weight: 600; }
 .channel-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; }
 .channel-name, .file-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.organize-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ghost-btn, .primary-btn { border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ghost-btn { border: 1px solid var(--line); color: #56637b; background: #fff; }
+.ghost-btn:hover { border-color: #bdd7ff; color: var(--brand); }
+.primary-btn { border: 0; color: #fff; background: var(--brand); box-shadow: 0 4px 10px rgba(22,119,255,.18); }
+.organize-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.organize-chip { border-radius: 999px; padding: 4px 10px; color: #56637b; background: #f4f7fc; font-size: 12px; }
+.organize-chip b { margin-left: 4px; color: var(--ink); }
+.organize-empty { color: var(--muted); font-size: 13px; }
+.kind-badge { display: inline-block; border-radius: 6px; padding: 2px 7px; font-size: 12px; font-weight: 600; }
+.kind-badge--audio { color: #1267d6; background: #eaf3ff; }
+.kind-badge--video { color: #6046d3; background: #f0edff; }
 .layui-table-body .layui-table tbody tr:hover { background: #f8faff; }
 .progress-waiting, .muted { color: var(--muted); font-size: 12px; }
 .reason-text, .path-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -76,6 +88,7 @@ body { margin: 0; padding: 24px; min-width: 320px; color: var(--ink); background
   .summary-card strong { font-size: 25px; }
   .task-toolbar { align-items: flex-start; flex-direction: column; }
   .result-toolbar { align-items: flex-start; flex-direction: column; }
+  .organize-actions { width: 100%; }
   .dashboard-content { padding: 12px !important; }
   .dashboard-footer { gap: 8px; flex-direction: column; }
   .layui-table-view { overflow-x: auto; }
