@@ -70,3 +70,7 @@ config.yaml
 data.yaml
 *.scss
 *.css.map
+
+# Organizer runtime data
+log/organize_plan.json
+log/organize_plan.json.tmp

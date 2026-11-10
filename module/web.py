@@ -8,6 +8,7 @@ from flask import Flask, jsonify, render_template, request
 from flask_login import LoginManager, UserMixin, login_required, login_user
 
 import utils
+from module import organizer
 from module.app import Application
 from module.download_stat import (
     DownloadState,
@@ -90,6 +91,9 @@ def init_web(app: Application):
         None.
     """
     global web_login_users
+    if not app.organize_config.download_root:
+        app.organize_config.download_root = app.save_path
+    organizer.configure(app.organize_config)
     if app.web_login_secret:
         web_login_users = {"root": app.web_login_secret}
     else:
@@ -183,9 +187,7 @@ def get_download_summary():
                 "downloading"
                 if is_active
                 else (
-                    "success"
-                    if value["down_byte"] == value["total_size"]
-                    else "failed"
+                    "success" if value["down_byte"] == value["total_size"] else "failed"
                 )
             )
             state = value.get("state", default_state)
@@ -284,3 +286,33 @@ def get_download_list():
             )
         )
     return jsonify(items)
+
+
+@_flask_app.route("/get_organize_plan")
+@login_required
+def get_organize_plan():
+    """Return the post-download organize plan."""
+    return jsonify(organizer.get_plan())
+
+
+@_flask_app.route("/refresh_organize_plan", methods=["POST"])
+@login_required
+def refresh_organize_plan():
+    """Rebuild the post-download organize plan."""
+    return jsonify(organizer.build_plan())
+
+
+@_flask_app.route("/execute_organize_plan", methods=["POST"])
+@login_required
+def execute_organize_plan():
+    """Execute planned organize entries."""
+    payload = request.get_json(silent=True) or {}
+    entry_ids = (
+        payload.get("entry_ids")
+        or request.args.getlist("entry_id")
+        or request.form.getlist("entry_id")
+        or None
+    )
+    if entry_ids:
+        entry_ids = [str(entry_id) for entry_id in entry_ids]
+    return jsonify(organizer.execute_plan(entry_ids=entry_ids))

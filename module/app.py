@@ -16,6 +16,7 @@ from ruamel import yaml
 from module.cloud_drive import CloudDrive, CloudDriveConfig
 from module.filter import Filter
 from module.language import Language, set_language
+from module.organizer import OrganizeConfig, assign_organize_config
 from utils.format import replace_date_time, validate_title
 from utils.meta_data import MetaData
 
@@ -404,6 +405,7 @@ class Application:
         self.log_file_path = os.path.join(os.path.abspath("."), "log")
         self.session_file_path = os.path.join(os.path.abspath("."), "sessions")
         self.cloud_drive_config = CloudDriveConfig()
+        self.organize_config = OrganizeConfig()
         self.hide_file_name = False
         self.caption_name_dict: dict = {}
         self.caption_entities_dict: dict = {}
@@ -507,6 +509,8 @@ class Application:
                 self.cloud_drive_config.upload_adapter = upload_drive_config[
                     "upload_adapter"
                 ]
+
+        assign_organize_config(self.organize_config, _config.get("organize") or {})
 
         self.file_name_prefix_split = _config.get(
             "file_name_prefix_split", self.file_name_prefix_split

@@ -10,6 +10,7 @@ import pyrogram
 from loguru import logger
 from pyrogram.types import Audio, Document, Photo, Video, VideoNote, Voice
 
+from module import organizer
 from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.bot import start_download_bot, stop_download_bot
 from module.download_stat import (
@@ -687,6 +688,16 @@ async def finalize_download_task(
                 node.upload_success_count += 1
     except Exception as e:
         logger.exception(f"Message[{message.id}]: post-download hook failed: {e}")
+
+    if (
+        download_status is DownloadStatus.SuccessDownload
+        and file_name
+        and app.organize_config.enable
+        and os.path.isfile(file_name)
+    ):
+        organizer.enqueue_downloaded_file(
+            file_name, _get_chat_display_name(node.chat_id, message)
+        )
 
     await report_bot_download_status(
         node.bot,
