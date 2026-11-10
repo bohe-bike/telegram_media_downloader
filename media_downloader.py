@@ -62,6 +62,7 @@ async def _download_media_with_timeout(
     ui_file_name: str,
     task_start_time: float,
     node: TaskNode,
+    chat_title: str = "",
 ) -> Optional[str]:
     """Download media and optionally cap how long a single task can run."""
 
@@ -75,6 +76,7 @@ async def _download_media_with_timeout(
             task_start_time,
             node,
             client,
+            chat_title,
         ),
     )
 
@@ -394,10 +396,10 @@ def _cleanup_temp_download(temp_download_path: Optional[str]):
 # pylint: disable = R0912
 
 
-def _get_message_dirname(
+def _get_chat_display_name(
     chat_id: Union[int, str], message: pyrogram.types.Message
 ) -> str:
-    """Return the folder name used to group a message's downloaded files.
+    """Return the display name of the chat a message belongs to.
 
     Messages read from a channel or group use that chat's title. Media sent or
     forwarded to the bot lives in a private chat, which has no title, so the
@@ -406,11 +408,11 @@ def _get_message_dirname(
     folder).
     """
     if message.chat and getattr(message.chat, "title", None):
-        return validate_title(f"{message.chat.title}")
+        return f"{message.chat.title}"
 
     forward_chat = getattr(message, "forward_from_chat", None)
     if forward_chat and getattr(forward_chat, "title", None):
-        return validate_title(f"{forward_chat.title}")
+        return f"{forward_chat.title}"
 
     forward_user = getattr(message, "forward_from", None)
     if forward_user:
@@ -422,13 +424,20 @@ def _get_message_dirname(
             )
             if part
         )
-        return validate_title(name or f"{forward_user.id}")
+        return name or f"{forward_user.id}"
 
     forward_sender_name = getattr(message, "forward_sender_name", None)
     if forward_sender_name:
-        return validate_title(f"{forward_sender_name}")
+        return f"{forward_sender_name}"
 
-    return validate_title(f"{chat_id}")
+    return f"{chat_id}"
+
+
+def _get_message_dirname(
+    chat_id: Union[int, str], message: pyrogram.types.Message
+) -> str:
+    """Return the folder name used to group a message's downloaded files."""
+    return validate_title(_get_chat_display_name(chat_id, message))
 
 
 async def _get_media_meta(
@@ -551,6 +560,7 @@ async def add_download_task(
         total_size=expected_size,
         attempt=retry_count + 1,
         retry_count=retry_count,
+        chat_title=_get_chat_display_name(node.chat_id, message),
         is_active=True,
     )
     await queue.put((message, node))
@@ -648,6 +658,7 @@ async def finalize_download_task(
         node=node,
         attempt=retry_count + 1,
         retry_count=retry_count,
+        chat_title=_get_chat_display_name(node.chat_id, message),
     )
 
     try:
@@ -737,6 +748,7 @@ def _finish_abandoned_retry(message: pyrogram.types.Message, node: TaskNode, rea
         reason=reason,
         node=node,
         retry_count=node.failed_download_retry_count.get(message.id, 0),
+        chat_title=_get_chat_display_name(node.chat_id, message),
     )
     _increment_finished_task(node)
     node.failed_download_retry_count.pop(message.id, None)
@@ -792,6 +804,7 @@ def _schedule_failed_download_retry(
         node,
         retry_index,
         node.download_result_detail.get(message.id, "download failed"),
+        chat_title=_get_chat_display_name(node.chat_id, message),
     )
     app.loop.create_task(_retry_failed_download_later(message, node, retry_index))
     return True
@@ -861,6 +874,7 @@ async def download_media(
         return DownloadStatus.FailedDownload, None
 
     node.download_result_detail.pop(message.id, None)
+    chat_title = _get_chat_display_name(node.chat_id, message)
     try:
         for _type in media_types:
             _media = getattr(message, _type, None)
@@ -919,6 +933,7 @@ async def download_media(
                 ui_file_name,
                 task_start_time,
                 node,
+                chat_title,
             )
 
             if temp_download_path and isinstance(temp_download_path, str):

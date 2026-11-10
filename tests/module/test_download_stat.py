@@ -78,7 +78,14 @@ class DownloadStatTestCase(unittest.TestCase):
         node = TaskNode(chat_id=101, task_id=7)
         self.run_async(
             download_stat.update_download_status(
-                50, 100, 11, "video.mp4", time.time() - 1, node, AsyncMock()
+                50,
+                100,
+                11,
+                "video.mp4",
+                time.time() - 1,
+                node,
+                AsyncMock(),
+                chat_title="频道A",
             )
         )
         flask_app = get_flask_app()
@@ -87,14 +94,18 @@ class DownloadStatTestCase(unittest.TestCase):
         try:
             with flask_app.test_client() as client:
                 active_response = client.get("/get_download_list?already_down=false")
-                self.assertEqual(1, len(active_response.get_json()))
+                active_items = active_response.get_json()
+                self.assertEqual(1, len(active_items))
+                self.assertEqual("频道A", active_items[0]["chat_title"])
 
                 download_stat.finish_download_status(101, 11, True)
 
                 active_response = client.get("/get_download_list?already_down=false")
                 finished_response = client.get("/get_download_list?already_down=true")
                 self.assertEqual([], active_response.get_json())
-                self.assertEqual(1, len(finished_response.get_json()))
+                finished_items = finished_response.get_json()
+                self.assertEqual(1, len(finished_items))
+                self.assertEqual("频道A", finished_items[0]["chat_title"])
         finally:
             flask_app.config["LOGIN_DISABLED"] = original_login_disabled
 

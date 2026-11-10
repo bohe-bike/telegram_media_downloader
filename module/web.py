@@ -249,6 +249,7 @@ def get_download_list():
             items.append(
                 {
                     "chat": str(chat_id),
+                    "chat_title": value.get("chat_title") or str(chat_id),
                     "id": str(idx),
                     "filename": os.path.basename(value["file_name"]),
                     "total_size": format_byte(total_size),

@@ -37,6 +37,7 @@ def set_download_task_status(
     attempt: int = 0,
     retry_count: int = 0,
     reason: str = "",
+    chat_title: str = "",
     is_active: bool = True,
 ):
     """Create or update a task lifecycle record, even before bytes arrive."""
@@ -54,6 +55,7 @@ def set_download_task_status(
                 "download_speed": 0,
                 "each_second_total_download": 0,
                 "task_id": node.task_id,
+                "chat_title": chat_title,
             }
             messages[message_id] = result
 
@@ -61,6 +63,8 @@ def set_download_task_status(
             result["file_name"] = file_name
         if total_size:
             result["total_size"] = total_size
+        if chat_title:
+            result["chat_title"] = chat_title
         result["task_id"] = node.task_id
         result["state"] = state
         result["attempt"] = attempt
@@ -84,6 +88,7 @@ def mark_download_retrying(
     node: TaskNode,
     retry_count: int,
     reason: str = "",
+    chat_title: str = "",
 ):
     """Expose a delayed retry instead of leaving it as a stale download."""
     set_download_task_status(
@@ -94,6 +99,7 @@ def mark_download_retrying(
         attempt=retry_count + 1,
         retry_count=retry_count,
         reason=reason,
+        chat_title=chat_title,
         is_active=True,
     )
 
@@ -133,6 +139,7 @@ def finish_download_status(
     node: TaskNode = None,
     attempt: int = 0,
     retry_count: int = 0,
+    chat_title: str = "",
 ):
     """Mark a download record inactive and keep a bounded completed history."""
     with _download_result_lock:
@@ -147,6 +154,7 @@ def finish_download_status(
                 "download_speed": 0,
                 "each_second_total_download": 0,
                 "task_id": node.task_id if node else 0,
+                "chat_title": chat_title,
             }
 
         result = messages[message_id]
@@ -154,6 +162,8 @@ def finish_download_status(
             result["file_name"] = file_name
         if total_size:
             result["total_size"] = total_size
+        if chat_title:
+            result["chat_title"] = chat_title
         if node:
             result["task_id"] = node.task_id
         if is_success:
@@ -210,6 +220,7 @@ async def update_download_status(
     start_time: float,
     node: TaskNode,
     client: Client,
+    chat_title: str = "",
 ):
     """update_download_status"""
     cur_time = time.time()
@@ -257,6 +268,8 @@ async def update_download_status(
             result["each_second_total_download"] = each_second_total_download
             result["state"] = "downloading"
             result["updated_at"] = cur_time
+            if chat_title:
+                result["chat_title"] = chat_title
         else:
             each_second_total_download = down_byte
             messages[message_id] = {
@@ -270,6 +283,7 @@ async def update_download_status(
                 ),
                 "each_second_total_download": each_second_total_download,
                 "task_id": node.task_id,
+                "chat_title": chat_title,
                 "is_active": True,
                 "state": "downloading",
                 "attempt": 1,
